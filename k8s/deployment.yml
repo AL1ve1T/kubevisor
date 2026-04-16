@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubeflow-backend
+  namespace: kubeflow
+  labels:
+    app: kubeflow-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubeflow-backend
+  template:
+    metadata:
+      labels:
+        app: kubeflow-backend
+    spec:
+      serviceAccountName: kubeflow-backend
+      containers:
+        - name: kubeflow-backend
+          image: kubeflow-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: SERVER_PORT
+              value: "8080"
+            - name: KUBEFLOW_STALE_THRESHOLD_SECONDS
+              value: "120"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
