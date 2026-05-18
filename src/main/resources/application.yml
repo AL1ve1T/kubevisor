@@ -22,6 +22,24 @@ kubeflow:
   stale-threshold-seconds: 120
   cleanup-interval-seconds: 30
   retention-hours: 24
+  # CPU utilization thresholds (0.0 – 1.0) for node load classification
+  cpu-elevated-threshold: 0.50
+  cpu-high-threshold: 0.70
+  cpu-critical-threshold: 0.85
+  # Memory utilization thresholds (0.0 – 1.0) for node load classification
+  mem-elevated-threshold: 0.60
+  mem-high-threshold: 0.75
+  mem-critical-threshold: 0.90
+  # Memory limit per container in bytes used to convert container.memory.working_set
+  # (raw bytes from kubeletstats) to a [0,1] utilization ratio. Set this to match the
+  # memory limit configured for your workload pods (default: 512 MiB).
+  memory-limit-bytes: 536870912
+  # Kubernetes API URL for pod status scraping (phase + restart count).
+  # Empty = auto-detect: uses ServiceAccount when running in-cluster,
+  # or http://localhost:8001 (kubectl proxy) for local development.
+  k8s-api-url: ""
+  # How often to scrape pod status from the Kubernetes API (seconds).
+  pod-status-scrape-interval-seconds: 15
 
 management:
   endpoints:

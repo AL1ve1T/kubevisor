@@ -2,6 +2,7 @@ package com.kubeflow.ingestion;
 
 import com.kubeflow.aggregation.GraphStateManager;
 import com.kubeflow.model.NodeType;
+import com.kubeflow.support.KubeflowProperties;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -11,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class NetworkFlowProcessorTest {
 
-    private final GraphStateManager graphStateManager = new GraphStateManager();
+    private final GraphStateManager graphStateManager = new GraphStateManager(new KubeflowProperties());
     private final NetworkFlowProcessor processor = new NetworkFlowProcessor(graphStateManager);
 
     @Test
@@ -25,8 +26,11 @@ class NetworkFlowProcessorTest {
 
         assertEquals(2, graphStateManager.getNodes().size());
         assertEquals(1, graphStateManager.getEdges().size());
-        assertNotNull(graphStateManager.getEdges().get("order-service->auth-service"));
-        assertEquals("HTTP", graphStateManager.getEdges().get("order-service->auth-service").getProtocol());
+        var edge = graphStateManager.getEdges().get("order-service->auth-service");
+        assertNotNull(edge);
+        assertEquals("HTTP", edge.getProtocol());
+        assertEquals(0, edge.getRequestCount());
+        assertEquals(0.0, edge.getRequestsPerSecond(), 0.001);
     }
 
     @Test
@@ -58,7 +62,7 @@ class NetworkFlowProcessorTest {
     }
 
     @Test
-    void processMetrics_skipsNonDefaultNamespace() {
+    void processMetrics_systemNamespace_createsEdgeViaInternalNode() {
         Map<String, Object> payload = buildPayload(
                 "order-service", "default",
                 "kube-dns", "kube-system",
@@ -66,11 +70,25 @@ class NetworkFlowProcessorTest {
 
         processor.processMetrics(payload);
 
-        assertTrue(graphStateManager.getEdges().isEmpty());
+        // Cross-namespace traffic is collapsed into the synthetic "internal" node
+        assertNotNull(graphStateManager.getEdges().get("internal->kube-dns"));
     }
 
     @Test
-    void processMetrics_skipsMissingSrcOwner() {
+    void processMetrics_kubernetesTarget_isIgnored() {
+        Map<String, Object> payload = buildPayload(
+                "kubeflow-backend", "kubeflow",
+                "kubernetes", "default",
+                "443");
+
+        processor.processMetrics(payload);
+
+        assertTrue(graphStateManager.getEdges().isEmpty());
+        assertFalse(graphStateManager.getNodes().containsKey("kubernetes"));
+    }
+
+    @Test
+    void processMetrics_missingSrcOwner_createsExternalEdge() {
         Map<String, Object> payload = buildPayloadWithAttrs(List.of(
                 attr("k8s.dst.owner.name", "auth-service"),
                 attr("k8s.src.namespace", "default"),
@@ -79,11 +97,13 @@ class NetworkFlowProcessorTest {
 
         processor.processMetrics(payload);
 
-        assertTrue(graphStateManager.getEdges().isEmpty());
+        assertEquals(1, graphStateManager.getEdges().size());
+        assertNotNull(graphStateManager.getEdges().get("external->auth-service"));
+        assertEquals(NodeType.INPUT, graphStateManager.getNodes().get("external").getType());
     }
 
     @Test
-    void processMetrics_skipsEmptyOwnerName() {
+    void processMetrics_emptySrcOwner_createsExternalEdge() {
         Map<String, Object> payload = buildPayload(
                 "", "default",
                 "auth-service", "default",
@@ -91,7 +111,38 @@ class NetworkFlowProcessorTest {
 
         processor.processMetrics(payload);
 
-        assertTrue(graphStateManager.getEdges().isEmpty());
+        assertEquals(1, graphStateManager.getEdges().size());
+        assertNotNull(graphStateManager.getEdges().get("external->auth-service"));
+    }
+
+    @Test
+    void processMetrics_crossNamespace_createsInternalNode() {
+        Map<String, Object> payload = buildPayload(
+                "ingress-nginx", "ingress",
+                "order-service", "default",
+                "8082");
+
+        processor.processMetrics(payload);
+
+        assertEquals(1, graphStateManager.getEdges().size());
+        assertNotNull(graphStateManager.getEdges().get("internal->order-service"));
+        // Cross-namespace source is collapsed into the synthetic "internal" node
+        assertEquals(NodeType.INPUT, graphStateManager.getNodes().get("internal").getType());
+        assertEquals(NodeType.SERVICE, graphStateManager.getNodes().get("order-service").getType());
+    }
+
+    @Test
+    void processMetrics_externalToPostgres_createsEdge() {
+        Map<String, Object> payload = buildPayloadWithAttrs(List.of(
+                attr("k8s.dst.owner.name", "postgres"),
+                attr("k8s.dst.namespace", "default"),
+                attr("dst.port", "5432")));
+
+        processor.processMetrics(payload);
+
+        // External traffic to any known workload is tracked regardless of port
+        assertNotNull(graphStateManager.getEdges().get("external->postgres"));
+        assertEquals(NodeType.DATABASE, graphStateManager.getNodes().get("postgres").getType());
     }
 
     @Test
@@ -112,7 +163,7 @@ class NetworkFlowProcessorTest {
     }
 
     @Test
-    void processMetrics_unknownPort_isFiltered() {
+    void processMetrics_anyPort_createsEdge() {
         Map<String, Object> payload = buildPayload(
                 "service-a", "default",
                 "service-b", "default",
@@ -120,7 +171,26 @@ class NetworkFlowProcessorTest {
 
         processor.processMetrics(payload);
 
-        assertTrue(graphStateManager.getEdges().isEmpty());
+        // Port is irrelevant — all intra-cluster traffic to non-system namespaces is
+        // tracked
+        assertEquals(1, graphStateManager.getEdges().size());
+        assertNotNull(graphStateManager.getEdges().get("service-a->service-b"));
+    }
+
+    @Test
+    void processMetrics_nonDefaultNamespace_createsEdge() {
+        Map<String, Object> payload = buildPayload(
+                "api-gateway", "staging",
+                "payment-service", "staging",
+                "8081");
+
+        processor.processMetrics(payload);
+
+        assertEquals(2, graphStateManager.getNodes().size());
+        assertEquals(1, graphStateManager.getEdges().size());
+        assertNotNull(graphStateManager.getEdges().get("api-gateway->payment-service"));
+        assertEquals("staging", graphStateManager.getNodes().get("api-gateway").getNamespace());
+        assertEquals("staging", graphStateManager.getNodes().get("payment-service").getNamespace());
     }
 
     @Test
@@ -138,6 +208,53 @@ class NetworkFlowProcessorTest {
         processor.processMetrics(payload);
 
         assertTrue(graphStateManager.getEdges().isEmpty());
+    }
+
+    @Test
+    void processMetrics_withRedisFlow_createsCacheEdge() {
+        Map<String, Object> payload = buildPayload(
+                "order-service", "default",
+                "redis", "default",
+                "6379");
+
+        processor.processMetrics(payload);
+
+        assertEquals(2, graphStateManager.getNodes().size());
+        var edge = graphStateManager.getEdges().get("order-service->redis");
+        assertNotNull(edge);
+        assertEquals("redis", edge.getProtocol());
+        assertEquals(NodeType.CACHE, graphStateManager.getNodes().get("redis").getType());
+    }
+
+    @Test
+    void processMetrics_withKafkaFlow_createsQueueEdge() {
+        Map<String, Object> payload = buildPayload(
+                "order-service", "default",
+                "kafka", "default",
+                "9092");
+
+        processor.processMetrics(payload);
+
+        assertEquals(2, graphStateManager.getNodes().size());
+        var edge = graphStateManager.getEdges().get("order-service->kafka");
+        assertNotNull(edge);
+        assertEquals("kafka", edge.getProtocol());
+        assertEquals(NodeType.QUEUE, graphStateManager.getNodes().get("kafka").getType());
+    }
+
+    @Test
+    void processMetrics_withRabbitMqFlow_createsQueueEdge() {
+        Map<String, Object> payload = buildPayload(
+                "ticket-service", "default",
+                "rabbitmq", "default",
+                "5672");
+
+        processor.processMetrics(payload);
+
+        var edge = graphStateManager.getEdges().get("ticket-service->rabbitmq");
+        assertNotNull(edge);
+        assertEquals("amqp", edge.getProtocol());
+        assertEquals(NodeType.QUEUE, graphStateManager.getNodes().get("rabbitmq").getType());
     }
 
     // --- helpers ---

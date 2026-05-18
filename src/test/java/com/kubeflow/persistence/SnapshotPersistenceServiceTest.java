@@ -42,7 +42,9 @@ class SnapshotPersistenceServiceTest {
     @Test
     void save_persistsSnapshotToDatabase() {
         GraphSnapshot snapshot = new GraphSnapshot(
-                List.of(new GraphSnapshot.NodeDto("svc-a", "svc-a", NodeType.SERVICE, "demo", Instant.now())),
+                "default",
+                List.of(new GraphSnapshot.NodeDto("svc-a", "svc-a", NodeType.SERVICE, 0.0, 0.0,
+                        com.kubeflow.model.PodPhase.UNKNOWN, 0, Instant.now())),
                 List.of(),
                 Instant.now());
 
@@ -55,9 +57,9 @@ class SnapshotPersistenceServiceTest {
     void getHistory_returnsSnapshotsInTimeRange() {
         Instant now = Instant.now();
 
-        service.save(new GraphSnapshot(List.of(), List.of(), now.minus(Duration.ofMinutes(30))));
-        service.save(new GraphSnapshot(List.of(), List.of(), now.minus(Duration.ofMinutes(10))));
-        service.save(new GraphSnapshot(List.of(), List.of(), now.minus(Duration.ofHours(2))));
+        service.save(new GraphSnapshot("default", List.of(), List.of(), now.minus(Duration.ofMinutes(30))));
+        service.save(new GraphSnapshot("default", List.of(), List.of(), now.minus(Duration.ofMinutes(10))));
+        service.save(new GraphSnapshot("default", List.of(), List.of(), now.minus(Duration.ofHours(2))));
 
         List<GraphSnapshot> history = service.getHistory(now.minus(Duration.ofHours(1)), now);
 
@@ -69,9 +71,9 @@ class SnapshotPersistenceServiceTest {
         Instant now = Instant.now();
 
         // Save with explicit timestamps via repository directly
-        repository.save(new GraphSnapshotEntity(now.minus(Duration.ofHours(25)), "{}"));
-        repository.save(new GraphSnapshotEntity(now.minus(Duration.ofHours(23)), "{}"));
-        repository.save(new GraphSnapshotEntity(now, "{}"));
+        repository.save(new GraphSnapshotEntity(now.minus(Duration.ofHours(25)), "default", "{}"));
+        repository.save(new GraphSnapshotEntity(now.minus(Duration.ofHours(23)), "default", "{}"));
+        repository.save(new GraphSnapshotEntity(now, "default", "{}"));
 
         int deleted = service.purgeOlderThan(Duration.ofHours(24));
 

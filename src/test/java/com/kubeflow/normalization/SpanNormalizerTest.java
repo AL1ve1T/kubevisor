@@ -60,7 +60,7 @@ class SpanNormalizerTest {
     }
 
     @Test
-    void normalize_serverSpanWithoutCallerInfo_returnsNull() {
+    void normalize_serverSpanWithoutCallerInfo_attributesToExternal() {
         ParsedSpan span = new ParsedSpan(
                 "trace3", "span3", "parent3",
                 "ticket-service", "demo",
@@ -68,6 +68,42 @@ class SpanNormalizerTest {
                 1_000_000_000L, 1_030_000_000L,
                 0,
                 Map.of("http.method", "GET"),
+                Map.of());
+
+        InteractionEvent event = normalizer.normalize(span);
+
+        assertNotNull(event);
+        assertEquals("external", event.sourceService());
+        assertEquals("ticket-service", event.targetService());
+        assertEquals(30.0, event.latencyMs(), 0.001);
+    }
+
+    @Test
+    void normalize_serverSpanForNonHttpService_returnsNull() {
+        // Beyla instruments postgres (port 5432) and emits a SERVER span.
+        // No http.method, no method attribute — caller is unknowable, discard.
+        ParsedSpan span = new ParsedSpan(
+                "traceDb", "spanDb", "parentDb",
+                "postgres", "default",
+                "SELECT", "2",
+                1_000_000_000L, 1_010_000_000L,
+                0,
+                Map.of("db.system", "postgresql"),
+                Map.of());
+
+        InteractionEvent event = normalizer.normalize(span);
+        assertNull(event);
+    }
+
+    @Test
+    void normalize_serverSpanForActuatorPath_returnsNull() {
+        ParsedSpan span = new ParsedSpan(
+                "trace3x", "span3x", "parent3x",
+                "order-service", "demo",
+                "http get /actuator/health", "2",
+                1_000_000_000L, 1_005_000_000L,
+                0,
+                Map.of("method", "GET", "uri", "/actuator/health"),
                 Map.of());
 
         InteractionEvent event = normalizer.normalize(span);
@@ -94,7 +130,7 @@ class SpanNormalizerTest {
     }
 
     @Test
-    void normalize_serverSpanWithUnknownClientAddress_returnsNull() {
+    void normalize_serverSpanWithUnknownClientAddress_attributesToExternal() {
         ParsedSpan span = new ParsedSpan(
                 "trace3c", "span3c", "parent3c",
                 "ticket-service", "demo",
@@ -105,7 +141,10 @@ class SpanNormalizerTest {
                 Map.of());
 
         InteractionEvent event = normalizer.normalize(span);
-        assertNull(event);
+
+        assertNotNull(event);
+        assertEquals("external", event.sourceService());
+        assertEquals("ticket-service", event.targetService());
     }
 
     @Test

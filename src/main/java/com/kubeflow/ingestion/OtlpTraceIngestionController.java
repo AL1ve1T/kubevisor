@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.kubeflow.api.GraphUpdatePublisher;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,15 +33,33 @@ public class OtlpTraceIngestionController {
 
     private final IngestionPipeline ingestionPipeline;
     private final ObjectMapper objectMapper;
+    private final GraphUpdatePublisher graphUpdatePublisher;
 
     public OtlpTraceIngestionController(IngestionPipeline ingestionPipeline,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            GraphUpdatePublisher graphUpdatePublisher) {
         this.ingestionPipeline = ingestionPipeline;
         this.objectMapper = objectMapper;
+        this.graphUpdatePublisher = graphUpdatePublisher;
     }
 
-    @Operation(summary = "Receive OTLP trace payload", description = "Accepts an OTLP/HTTP JSON export request. Spans are parsed, normalized into topology events, and aggregated into the live graph.")
-    @ApiResponse(responseCode = "200", description = "Payload accepted")
+    @Operation(summary = "Receive OTLP trace payload", description = """
+            Accepts an OTLP/HTTP JSON trace export (`ExportTraceServiceRequest`).
+            Spans are parsed, normalized into internal `InteractionEvent` objects, and aggregated
+            into the live topology graph.
+
+            **What is extracted per span:**
+            - Source service name (from `service.name` resource attribute)
+            - Target service/database name (from `db.name`, `peer.service`, or `net.peer.name`)
+            - Protocol (HTTP, postgresql, redis, etc.)
+            - Latency (span duration)
+            - Error flag (`otel.status_code = ERROR` or HTTP 5xx)
+
+            Edges and nodes that do not appear in a span for more than the configured stale threshold
+            are automatically removed from the live graph.
+            """)
+    @ApiResponse(responseCode = "200", description = "Payload accepted and processed")
+    @ApiResponse(responseCode = "400", description = "Payload could not be parsed")
     @PostMapping(value = "/traces", consumes = {
             MediaType.APPLICATION_JSON_VALUE,
             "application/x-protobuf",
@@ -57,6 +77,7 @@ public class OtlpTraceIngestionController {
 
         log.debug("Received OTLP trace payload");
         ingestionPipeline.process(payload);
+        graphUpdatePublisher.notifyIfChanged();
         return ResponseEntity.ok().build();
     }
 

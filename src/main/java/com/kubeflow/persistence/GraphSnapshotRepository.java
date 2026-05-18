@@ -12,6 +12,9 @@ public interface GraphSnapshotRepository extends JpaRepository<GraphSnapshotEnti
 
     List<GraphSnapshotEntity> findByCapturedAtBetweenOrderByCapturedAtAsc(Instant from, Instant to);
 
+    List<GraphSnapshotEntity> findByNamespaceAndCapturedAtBetweenOrderByCapturedAtAsc(String namespace, Instant from,
+            Instant to);
+
     @Modifying
     @Query("DELETE FROM GraphSnapshotEntity e WHERE e.capturedAt < :cutoff")
     int deleteByCapturedAtBefore(@Param("cutoff") Instant cutoff);

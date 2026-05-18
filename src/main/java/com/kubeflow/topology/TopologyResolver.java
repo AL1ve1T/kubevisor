@@ -11,14 +11,28 @@ import org.springframework.stereotype.Component;
 @Component
 public class TopologyResolver {
 
+    private static final java.util.Set<String> IGNORED_SERVICE_TARGETS = java.util.Set.of(
+            "kubernetes",
+            "kubernetes.default.svc",
+            "kubernetes.default.svc.cluster.local");
+
     public record ResolvedTarget(
             String serviceName,
             String namespace,
             NodeType nodeType) {
     }
 
+    // db.system values treated as CACHE rather than DATABASE
+    private static final java.util.Set<String> CACHE_SYSTEMS = java.util.Set.of(
+            "redis", "memcached", "hazelcast", "dragonfly");
+
     public ResolvedTarget resolveTarget(ParsedSpan span) {
-        // Check for database calls
+        // Check for messaging/queue calls first
+        ResolvedTarget queueTarget = resolveQueue(span);
+        if (queueTarget != null)
+            return queueTarget;
+
+        // Check for database/cache calls
         ResolvedTarget dbTarget = resolveDatabase(span);
         if (dbTarget != null)
             return dbTarget;
@@ -27,13 +41,27 @@ public class TopologyResolver {
         ResolvedTarget serviceTarget = resolveService(span);
         if (serviceTarget != null)
             return serviceTarget;
+        if (isIgnoredServiceCall(span)) {
+            return null;
+        }
 
         // Fall back to span name as target
         if (span.spanName() != null && !span.spanName().isBlank()) {
-            return new ResolvedTarget(span.spanName(), null, NodeType.EXTERNAL);
+            return new ResolvedTarget(span.spanName(), null, NodeType.INPUT);
         }
 
         return null;
+    }
+
+    private ResolvedTarget resolveQueue(ParsedSpan span) {
+        String messagingSystem = span.attributes().get("messaging.system");
+        if (messagingSystem == null)
+            return null;
+        String destination = span.attributes().get("messaging.destination.name");
+        if (destination == null)
+            destination = span.attributes().get("messaging.destination");
+        String targetName = destination != null ? destination : messagingSystem;
+        return new ResolvedTarget(targetName, null, NodeType.QUEUE);
     }
 
     private ResolvedTarget resolveDatabase(ParsedSpan span) {
@@ -48,13 +76,17 @@ public class TopologyResolver {
             dbName = span.attributes().get("db.namespace");
         String targetName = dbName != null ? dbName : dbSystem;
 
-        return new ResolvedTarget(targetName, null, NodeType.DATABASE);
+        NodeType type = CACHE_SYSTEMS.contains(dbSystem.toLowerCase()) ? NodeType.CACHE : NodeType.DATABASE;
+        return new ResolvedTarget(targetName, null, type);
     }
 
     private ResolvedTarget resolveService(ParsedSpan span) {
         // peer.service is the canonical way to identify the target service
         String peerService = span.attributes().get("peer.service");
         if (peerService != null) {
+            if (isIgnoredServiceTarget(peerService)) {
+                return null;
+            }
             return new ResolvedTarget(peerService, null, NodeType.SERVICE);
         }
 
@@ -69,6 +101,9 @@ public class TopologyResolver {
             // Strip port if present
             String serviceName = serverAddress.contains(":") ? serverAddress.substring(0, serverAddress.indexOf(':'))
                     : serverAddress;
+            if (isIgnoredServiceTarget(serviceName)) {
+                return null;
+            }
             return new ResolvedTarget(serviceName, null, NodeType.SERVICE);
         }
 
@@ -79,11 +114,51 @@ public class TopologyResolver {
         if (url != null) {
             String host = extractHostFromUrl(url);
             if (host != null) {
-                return new ResolvedTarget(host, null, NodeType.EXTERNAL);
+                if (isIgnoredServiceTarget(host)) {
+                    return null;
+                }
+                return new ResolvedTarget(host, null, NodeType.INPUT);
             }
         }
 
         return null;
+    }
+
+    private boolean isIgnoredServiceCall(ParsedSpan span) {
+        String peerService = span.attributes().get("peer.service");
+        if (isIgnoredServiceTarget(peerService)) {
+            return true;
+        }
+
+        String serverAddress = span.attributes().get("server.address");
+        if (serverAddress == null)
+            serverAddress = span.attributes().get("net.peer.name");
+        if (serverAddress == null)
+            serverAddress = span.attributes().get("http.host");
+        if (serverAddress != null) {
+            String serviceName = serverAddress.contains(":")
+                    ? serverAddress.substring(0, serverAddress.indexOf(':'))
+                    : serverAddress;
+            if (isIgnoredServiceTarget(serviceName)) {
+                return true;
+            }
+        }
+
+        String url = span.attributes().get("http.url");
+        if (url == null)
+            url = span.attributes().get("url.full");
+        if (url != null) {
+            String host = extractHostFromUrl(url);
+            if (isIgnoredServiceTarget(host)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean isIgnoredServiceTarget(String serviceName) {
+        return serviceName != null && IGNORED_SERVICE_TARGETS.contains(serviceName.toLowerCase());
     }
 
     private String extractHostFromUrl(String url) {

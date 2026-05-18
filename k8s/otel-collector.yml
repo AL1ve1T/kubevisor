@@ -1,0 +1,196 @@
+# ---
+# OTel Collector — full deployment manifest.
+#
+# What changed vs. the in-cluster ConfigMap that existed before:
+#   1. Added ServiceAccount + ClusterRole + ClusterRoleBinding so the collector
+#      can call the Kubelet Stats API (nodes/stats, nodes/proxy).
+#   2. Added the `kubeletstats` receiver that scrapes CPU and memory utilization
+#      from every pod/container on the node.
+#   3. Wired `kubeletstats` into the metrics pipeline.
+#   4. The Deployment now uses the named ServiceAccount and injects K8S_NODE_NAME
+#      via the Downward API so the receiver knows which Kubelet to talk to.
+# ---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector-kubeletstats
+rules:
+  - apiGroups: [""]
+    resources: ["nodes/stats", "nodes/proxy"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list", "watch"]
+  # Required by the k8sattributes processor to resolve k8s.deployment.name from
+  # the pod's owning ReplicaSet, and to annotate metrics with deployment names.
+  - apiGroups: ["apps"]
+    resources: ["replicasets", "deployments", "daemonsets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-kubeletstats
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector-kubeletstats
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: default
+data:
+  otel-collector-config.yaml: |
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+      kubeletstats:
+        collection_interval: 15s
+        auth_type: serviceAccount
+        # K8S_NODE_NAME is injected by the Downward API in the Deployment below.
+        endpoint: "https://${env:K8S_NODE_NAME}:10250"
+        insecure_skip_verify: true
+        metric_groups:
+          - pod
+          - container
+        metrics:
+          # Opt-in: container CPU utilization as a ratio of the configured CPU limit.
+          k8s.container.cpu_limit_utilization:
+            enabled: true
+          # NOTE: k8s.container.memory_limit_utilization is intentionally NOT enabled.
+          # The kubelet stats summary API on Minikube does not expose container memory
+          # limits in a form kubeletstats can use to compute the ratio. The backend
+          # instead reads container.memory.working_set (raw bytes, always emitted) and
+          # divides by kubeflow.memory-limit-bytes from application.yml.
+          # Also enable pod-level CPU utilization as a fallback.
+          k8s.pod.cpu.utilization:
+            enabled: true
+
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+
+      # Add k8s metadata (namespace, pod name, deployment name) to every metric
+      # so the backend can resolve workload names correctly.
+      k8sattributes:
+        auth_type: serviceAccount
+        passthrough: false
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.pod.name
+            - k8s.deployment.name
+            - k8s.replicaset.name
+        pod_association:
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.name
+
+    exporters:
+      debug:
+        verbosity: basic
+      otlphttp/kubeflow_backend:
+        endpoint: "http://host.docker.internal:8080"
+        encoding: json
+        compression: none
+        tls:
+          insecure: true
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [debug, otlphttp/kubeflow_backend]
+        metrics:
+          receivers: [otlp, kubeletstats]
+          processors: [batch, k8sattributes]
+          exporters: [debug, otlphttp/kubeflow_backend]
+        logs:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [debug]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      serviceAccountName: otel-collector
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.98.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config=/etc/otel/otel-collector-config.yaml
+          env:
+            # Injected so the kubeletstats receiver knows which node to scrape.
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 4318
+              name: otlp-http
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config

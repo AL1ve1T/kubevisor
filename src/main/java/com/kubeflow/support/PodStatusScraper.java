@@ -1,0 +1,346 @@
+package com.kubeflow.support;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kubeflow.aggregation.GraphStateManager;
+import com.kubeflow.model.Node;
+import com.kubeflow.model.PodPhase;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * Periodically scrapes the Kubernetes pod list API to enrich graph nodes with
+ * live pod health signals: phase (Running, CrashLoopBackOff, etc.) and the
+ * total container restart count.
+ *
+ * <p>Operates in two modes:
+ * <ul>
+ *   <li><b>In-cluster</b>: detected via the {@code KUBERNETES_SERVICE_HOST}
+ *       environment variable. Uses the pod's ServiceAccount bearer token and
+ *       connects to {@code https://kubernetes.default.svc} with TLS
+ *       verification disabled (Minikube CA is self-signed).</li>
+ *   <li><b>Local dev</b>: connects to the URL configured in
+ *       {@code kubeflow.k8s-api-url} (default {@code http://localhost:8001},
+ *       which is where {@code kubectl proxy} listens).</li>
+ * </ul>
+ *
+ * Failures are handled gracefully — consecutive failures are logged at WARN
+ * once, then suppressed to avoid log spam while the API is unreachable.
+ */
+@Component
+public class PodStatusScraper {
+
+    private static final Logger log = LoggerFactory.getLogger(PodStatusScraper.class);
+
+    private static final String SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token";
+    private static final String IN_CLUSTER_API = "https://kubernetes.default.svc";
+
+    private final GraphStateManager graphStateManager;
+    private final ObjectMapper objectMapper;
+    private final HttpClient httpClient;
+    private final String apiBaseUrl;
+    private final String bearerToken;
+
+    // Failure tracking: log warn on first failure, then every 10 after that.
+    private volatile int consecutiveFailures = 0;
+
+    public PodStatusScraper(GraphStateManager graphStateManager,
+            ObjectMapper objectMapper,
+            KubeflowProperties properties) {
+        this.graphStateManager = graphStateManager;
+        this.objectMapper = objectMapper;
+
+        boolean inCluster = System.getenv("KUBERNETES_SERVICE_HOST") != null;
+        if (inCluster) {
+            this.apiBaseUrl = IN_CLUSTER_API;
+            this.bearerToken = readSaToken();
+            this.httpClient = buildInsecureHttpClient();
+            log.info("PodStatusScraper: in-cluster mode, api={}", apiBaseUrl);
+        } else {
+            String configured = properties.getK8sApiUrl();
+            this.apiBaseUrl = configured.isBlank() ? "http://localhost:8001" : configured;
+            this.bearerToken = null;
+            this.httpClient = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(3))
+                    .build();
+            log.info("PodStatusScraper: local dev mode, api={} (run 'kubectl proxy' to enable)", apiBaseUrl);
+        }
+    }
+
+    @Scheduled(fixedDelayString = "${kubeflow.pod-status-scrape-interval-seconds:15}000")
+    public void scrape() {
+        // Collect the namespaces currently tracked in the graph.
+        Set<String> namespaces = graphStateManager.getNodes().values().stream()
+                .map(Node::getNamespace)
+                .filter(ns -> ns != null && !ns.isBlank())
+                .collect(Collectors.toSet());
+
+        if (namespaces.isEmpty()) {
+            return;
+        }
+
+        try {
+            for (String ns : namespaces) {
+                scrapeNamespace(ns);
+            }
+            if (consecutiveFailures > 0) {
+                log.info("PodStatusScraper: recovered after {} failure(s)", consecutiveFailures);
+            }
+            consecutiveFailures = 0;
+        } catch (Exception e) {
+            consecutiveFailures++;
+            if (consecutiveFailures == 1 || consecutiveFailures % 10 == 0) {
+                log.warn("PodStatusScraper: failed to scrape pod status (attempt {}): {}",
+                        consecutiveFailures, e.getMessage());
+            }
+        }
+    }
+
+    private void scrapeNamespace(String namespace) throws Exception {
+        String url = apiBaseUrl + "/api/v1/namespaces/" + namespace + "/pods";
+
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(10))
+                .GET();
+
+        if (bearerToken != null) {
+            builder.header("Authorization", "Bearer " + bearerToken);
+        }
+
+        HttpResponse<String> response = httpClient.send(builder.build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() != 200) {
+            throw new IllegalStateException(
+                    "k8s API returned " + response.statusCode() + " for namespace=" + namespace);
+        }
+
+        processPodList(namespace, response.body());
+    }
+
+    // Package-private for testing.
+    void processPodList(String namespace, String json) throws Exception {
+        Map<String, Object> body = objectMapper.readValue(json, new TypeReference<>() {
+        });
+        List<Map<String, Object>> items = getList(body, "items");
+
+        // Aggregate by workload name. A deployment runs multiple pod replicas — we
+        // track the worst-case phase and the maximum restart count across all of them.
+        Map<String, WorkloadStatus> byWorkload = new HashMap<>();
+
+        for (Map<String, Object> pod : items) {
+            Map<String, Object> metadata = getMap(pod, "metadata");
+            String podName = getString(metadata, "name");
+            if (podName == null || podName.isBlank()) {
+                continue;
+            }
+
+            String workloadName = resolveWorkloadName(metadata, podName);
+            WorkloadStatus status = byWorkload.computeIfAbsent(workloadName, k -> new WorkloadStatus());
+
+            Map<String, Object> podStatus = getMap(pod, "status");
+            PodPhase phase = classifyPod(podStatus);
+            int restarts = sumRestarts(podStatus);
+            status.merge(phase, restarts);
+        }
+
+        for (Map.Entry<String, WorkloadStatus> entry : byWorkload.entrySet()) {
+            graphStateManager.updateNodePodStatus(
+                    entry.getKey(), namespace,
+                    entry.getValue().phase,
+                    entry.getValue().restartCount);
+        }
+
+        log.debug("PodStatusScraper: scraped {} workload(s) in namespace={}", byWorkload.size(), namespace);
+    }
+
+    /**
+     * Resolves the workload (deployment) name from a pod.
+     * Prefers the ownerReference chain (pod → ReplicaSet label). Falls back to
+     * stripping the two hash suffixes from the pod name — the same strategy used
+     * by {@link com.kubeflow.ingestion.ResourceMetricsProcessor}.
+     */
+    private String resolveWorkloadName(Map<String, Object> metadata, String podName) {
+        // Check for a well-known workload label that Kubernetes controllers set.
+        Map<String, Object> labels = getMap(metadata, "labels");
+        String appLabel = getString(labels, "app");
+        if (appLabel != null && !appLabel.isBlank()) {
+            return appLabel;
+        }
+        // Fall back to stripping the two random hash suffixes from the pod name.
+        return stripLastTwoSuffixes(podName);
+    }
+
+    /**
+     * Determines the {@link PodPhase} from the pod's status block.
+     * CrashLoopBackOff and OOMKilled take precedence over the ready condition.
+     */
+    // Package-private for testing.
+    PodPhase classifyPod(Map<String, Object> status) {
+        // Check every container state for CrashLoopBackOff / OOMKilled.
+        for (Map<String, Object> cs : getList(status, "containerStatuses")) {
+            Map<String, Object> state = getMap(cs, "state");
+            String waitingReason = getString(getMap(state, "waiting"), "reason");
+            if ("CrashLoopBackOff".equals(waitingReason) || "OOMKilled".equals(waitingReason)) {
+                return PodPhase.CRASH_LOOP;
+            }
+            // A container that just finished with non-zero exit also counts as degraded.
+            Map<String, Object> terminated = getMap(state, "terminated");
+            String termReason = getString(terminated, "reason");
+            if ("OOMKilled".equals(termReason)) {
+                return PodPhase.CRASH_LOOP;
+            }
+        }
+        // Check the Ready condition.
+        for (Map<String, Object> cond : getList(status, "conditions")) {
+            if ("Ready".equals(getString(cond, "type"))) {
+                if ("True".equals(getString(cond, "status"))) {
+                    return PodPhase.RUNNING;
+                }
+                // Ready=False — distinguish Pending from an already-running-but-degraded pod.
+            }
+        }
+        // Fall back to pod phase string.
+        String phase = getString(status, "phase");
+        if ("Pending".equals(phase)) {
+            return PodPhase.PENDING;
+        }
+        if ("Failed".equals(phase) || "Succeeded".equals(phase)) {
+            return PodPhase.FAILED;
+        }
+        if ("Running".equals(phase)) {
+            // Running but Ready=False → not-ready (readiness probe failing, initializing).
+            return PodPhase.NOT_READY;
+        }
+        return PodPhase.UNKNOWN;
+    }
+
+    /** Sums restartCount across all containers in the pod. */
+    // Package-private for testing.
+    int sumRestarts(Map<String, Object> status) {
+        int total = 0;
+        for (Map<String, Object> cs : getList(status, "containerStatuses")) {
+            Object rc = cs.get("restartCount");
+            if (rc instanceof Number n) {
+                total += n.intValue();
+            }
+        }
+        return total;
+    }
+
+    // -------------------------------------------------------------------------
+    // Workload name helpers (mirrors ResourceMetricsProcessor)
+    // -------------------------------------------------------------------------
+
+    private String stripLastTwoSuffixes(String name) {
+        String[] parts = name.split("-");
+        if (parts.length > 2) {
+            return String.join("-", Arrays.copyOfRange(parts, 0, parts.length - 2));
+        } else if (parts.length > 1) {
+            return String.join("-", Arrays.copyOfRange(parts, 0, parts.length - 1));
+        }
+        return name;
+    }
+
+    // -------------------------------------------------------------------------
+    // HTTP / SSL helpers
+    // -------------------------------------------------------------------------
+
+    private static HttpClient buildInsecureHttpClient() {
+        try {
+            SSLContext sslCtx = SSLContext.getInstance("TLS");
+            sslCtx.init(null, new TrustManager[]{new X509TrustManager() {
+                public void checkClientTrusted(X509Certificate[] c, String a) {
+                }
+
+                public void checkServerTrusted(X509Certificate[] c, String a) {
+                }
+
+                public X509Certificate[] getAcceptedIssuers() {
+                    return new X509Certificate[0];
+                }
+            }}, new SecureRandom());
+            return HttpClient.newBuilder()
+                    .sslContext(sslCtx)
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .build();
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to build insecure HTTP client", e);
+        }
+    }
+
+    private static String readSaToken() {
+        try {
+            return Files.readString(Path.of(SA_TOKEN_PATH)).strip();
+        } catch (Exception e) {
+            log.warn("PodStatusScraper: could not read SA token from {}: {}", SA_TOKEN_PATH, e.getMessage());
+            return null;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // JSON extraction helpers
+    // -------------------------------------------------------------------------
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> getList(Map<String, Object> map, String key) {
+        Object val = map.get(key);
+        if (val instanceof List<?> list) {
+            return (List<Map<String, Object>>) list;
+        }
+        return Collections.emptyList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> getMap(Map<String, Object> map, String key) {
+        Object val = map.get(key);
+        if (val instanceof Map<?, ?> m) {
+            return (Map<String, Object>) m;
+        }
+        return Collections.emptyMap();
+    }
+
+    private static String getString(Map<String, Object> map, String key) {
+        Object val = map.get(key);
+        return val instanceof String s ? s : null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Worst-case aggregation across pod replicas
+    // -------------------------------------------------------------------------
+
+    static final class WorkloadStatus {
+        PodPhase phase = PodPhase.UNKNOWN;
+        int restartCount = 0;
+
+        void merge(PodPhase newPhase, int newRestarts) {
+            if (newPhase.isWorseThan(this.phase)) {
+                this.phase = newPhase;
+            }
+            this.restartCount = Math.max(this.restartCount, newRestarts);
+        }
+    }
+}

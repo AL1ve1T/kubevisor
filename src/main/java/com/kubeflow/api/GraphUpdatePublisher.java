@@ -1,6 +1,8 @@
 package com.kubeflow.api;
 
+import com.kubeflow.aggregation.GraphStateManager;
 import com.kubeflow.model.GraphSnapshot;
+import com.kubeflow.persistence.SnapshotPersistenceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -12,6 +14,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Manages SSE subscriptions and publishes graph updates to connected clients.
+ * Publishes only when the graph state has actually changed.
  */
 @Component
 public class GraphUpdatePublisher {
@@ -20,6 +23,14 @@ public class GraphUpdatePublisher {
     private static final long SSE_TIMEOUT = 300_000L; // 5 minutes
 
     private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
+    private final GraphStateManager graphStateManager;
+    private final SnapshotPersistenceService snapshotPersistenceService;
+
+    public GraphUpdatePublisher(GraphStateManager graphStateManager,
+            SnapshotPersistenceService snapshotPersistenceService) {
+        this.graphStateManager = graphStateManager;
+        this.snapshotPersistenceService = snapshotPersistenceService;
+    }
 
     public SseEmitter subscribe() {
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT);
@@ -27,16 +38,51 @@ public class GraphUpdatePublisher {
         emitter.onCompletion(() -> emitters.remove(emitter));
         emitter.onTimeout(() -> emitters.remove(emitter));
         emitter.onError(e -> emitters.remove(emitter));
+
+        // Send current graph state immediately so the client doesn't start with an
+        // empty view
+        try {
+            List<GraphSnapshot> snapshots = graphStateManager.buildSnapshots();
+            emitter.send(SseEmitter.event()
+                    .name("graph-update")
+                    .data(snapshots));
+        } catch (IOException e) {
+            emitter.complete();
+            emitters.remove(emitter);
+        }
+
         log.info("SSE client subscribed. Total clients: {}", emitters.size());
         return emitter;
     }
 
-    public void publishUpdate(GraphSnapshot snapshot) {
+    /**
+     * Checks if the graph has changed since the last notification.
+     * If so, builds a snapshot, broadcasts to SSE clients, and persists.
+     * Call this after each ingestion batch or cleanup cycle.
+     */
+    public void notifyIfChanged() {
+        if (!graphStateManager.resetDirty()) {
+            return;
+        }
+
+        List<GraphSnapshot> snapshots = graphStateManager.buildSnapshots();
+        broadcast(snapshots);
+        for (GraphSnapshot snapshot : snapshots) {
+            snapshotPersistenceService.save(snapshot);
+        }
+
+        int totalNodes = snapshots.stream().mapToInt(s -> s.nodes().size()).sum();
+        int totalEdges = snapshots.stream().mapToInt(s -> s.edges().size()).sum();
+        log.trace("Published graph update: {} namespaces, {} nodes, {} edges",
+                snapshots.size(), totalNodes, totalEdges);
+    }
+
+    private void broadcast(List<GraphSnapshot> snapshots) {
         for (SseEmitter emitter : emitters) {
             try {
                 emitter.send(SseEmitter.event()
                         .name("graph-update")
-                        .data(snapshot));
+                        .data(snapshots));
             } catch (IOException e) {
                 emitter.complete();
                 emitters.remove(emitter);

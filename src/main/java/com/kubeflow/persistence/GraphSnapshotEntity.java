@@ -23,14 +23,18 @@ public class GraphSnapshotEntity {
     @Column(nullable = false)
     private Instant capturedAt;
 
+    @Column(nullable = false)
+    private String namespace;
+
     @Column(columnDefinition = "CLOB", nullable = false)
     private String snapshotJson;
 
     protected GraphSnapshotEntity() {
     }
 
-    public GraphSnapshotEntity(Instant capturedAt, String snapshotJson) {
+    public GraphSnapshotEntity(Instant capturedAt, String namespace, String snapshotJson) {
         this.capturedAt = capturedAt;
+        this.namespace = namespace;
         this.snapshotJson = snapshotJson;
     }
 
@@ -40,6 +44,10 @@ public class GraphSnapshotEntity {
 
     public Instant getCapturedAt() {
         return capturedAt;
+    }
+
+    public String getNamespace() {
+        return namespace;
     }
 
     public String getSnapshotJson() {

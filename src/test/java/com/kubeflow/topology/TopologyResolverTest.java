@@ -28,6 +28,19 @@ class TopologyResolverTest {
     }
 
     @Test
+    void resolveTarget_withPeerServiceKubernetes_returnsNull() {
+        ParsedSpan span = new ParsedSpan(
+                "t1k", "s1k", "p1k", "src", "ns",
+                "GET /api", "3", 0, 100, 0,
+                Map.of("peer.service", "kubernetes"),
+                Map.of());
+
+        TopologyResolver.ResolvedTarget target = resolver.resolveTarget(span);
+
+        assertNull(target);
+    }
+
+    @Test
     void resolveTarget_withDbSystem_returnsDatabaseNode() {
         ParsedSpan span = new ParsedSpan(
                 "t2", "s2", "p2", "src", "ns",
@@ -58,6 +71,19 @@ class TopologyResolverTest {
     }
 
     @Test
+    void resolveTarget_withKubernetesApiAddress_returnsNull() {
+        ParsedSpan span = new ParsedSpan(
+                "t3k", "s3k", "p3k", "src", "ns",
+                "call", "3", 0, 100, 0,
+                Map.of("server.address", "kubernetes.default.svc:443"),
+                Map.of());
+
+        TopologyResolver.ResolvedTarget target = resolver.resolveTarget(span);
+
+        assertNull(target);
+    }
+
+    @Test
     void resolveTarget_withHttpUrl_returnsExternalNode() {
         ParsedSpan span = new ParsedSpan(
                 "t4", "s4", "p4", "src", "ns",
@@ -69,7 +95,7 @@ class TopologyResolverTest {
 
         assertNotNull(target);
         assertEquals("api.example.com", target.serviceName());
-        assertEquals(NodeType.EXTERNAL, target.nodeType());
+        assertEquals(NodeType.INPUT, target.nodeType());
     }
 
     @Test
@@ -84,7 +110,7 @@ class TopologyResolverTest {
 
         assertNotNull(target);
         assertEquals("unknown-target", target.serviceName());
-        assertEquals(NodeType.EXTERNAL, target.nodeType());
+        assertEquals(NodeType.INPUT, target.nodeType());
     }
 
     @Test
@@ -99,7 +125,7 @@ class TopologyResolverTest {
 
         assertNotNull(target);
         assertEquals("redis", target.serviceName());
-        assertEquals(NodeType.DATABASE, target.nodeType());
+        assertEquals(NodeType.CACHE, target.nodeType());
     }
 
     @Test
@@ -115,5 +141,50 @@ class TopologyResolverTest {
         assertNotNull(target);
         assertEquals("ticketdb", target.serviceName());
         assertEquals(NodeType.DATABASE, target.nodeType());
+    }
+
+    @Test
+    void resolveTarget_withMessagingSystem_returnsQueueNode() {
+        ParsedSpan span = new ParsedSpan(
+                "t8", "s8", "p8", "src", "ns",
+                "publish", "3", 0, 100, 0,
+                Map.of("messaging.system", "kafka", "messaging.destination.name", "orders-topic"),
+                Map.of());
+
+        TopologyResolver.ResolvedTarget target = resolver.resolveTarget(span);
+
+        assertNotNull(target);
+        assertEquals("orders-topic", target.serviceName());
+        assertEquals(NodeType.QUEUE, target.nodeType());
+    }
+
+    @Test
+    void resolveTarget_withMessagingSystemNoDestination_usesSystemName() {
+        ParsedSpan span = new ParsedSpan(
+                "t9", "s9", "p9", "src", "ns",
+                "publish", "3", 0, 100, 0,
+                Map.of("messaging.system", "rabbitmq"),
+                Map.of());
+
+        TopologyResolver.ResolvedTarget target = resolver.resolveTarget(span);
+
+        assertNotNull(target);
+        assertEquals("rabbitmq", target.serviceName());
+        assertEquals(NodeType.QUEUE, target.nodeType());
+    }
+
+    @Test
+    void resolveTarget_withMemcachedSystem_returnsCacheNode() {
+        ParsedSpan span = new ParsedSpan(
+                "t10", "s10", "p10", "src", "ns",
+                "get", "3", 0, 100, 0,
+                Map.of("db.system", "memcached"),
+                Map.of());
+
+        TopologyResolver.ResolvedTarget target = resolver.resolveTarget(span);
+
+        assertNotNull(target);
+        assertEquals("memcached", target.serviceName());
+        assertEquals(NodeType.CACHE, target.nodeType());
     }
 }

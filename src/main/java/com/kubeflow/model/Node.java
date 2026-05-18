@@ -14,6 +14,13 @@ public class Node {
     private NodeType type;
     private String namespace;
     private Instant lastSeenAt;
+    // Resource utilization in [0.0, 1.0]; 0.0 means no data received yet
+    private volatile double cpuUtilization;
+    private volatile double memoryUtilization;
+
+    // Pod health as scraped from the Kubernetes API
+    private volatile PodPhase podPhase = PodPhase.UNKNOWN;
+    private volatile int restartCount = 0;
 
     public Node(String id, String name, NodeType type, String namespace) {
         this.id = Objects.requireNonNull(id);
@@ -57,6 +64,38 @@ public class Node {
 
     public void touch() {
         this.lastSeenAt = Instant.now();
+    }
+
+    public double getCpuUtilization() {
+        return cpuUtilization;
+    }
+
+    public void setCpuUtilization(double cpuUtilization) {
+        this.cpuUtilization = cpuUtilization;
+    }
+
+    public double getMemoryUtilization() {
+        return memoryUtilization;
+    }
+
+    public void setMemoryUtilization(double memoryUtilization) {
+        this.memoryUtilization = memoryUtilization;
+    }
+
+    public PodPhase getPodPhase() {
+        return podPhase;
+    }
+
+    public void setPodPhase(PodPhase podPhase) {
+        this.podPhase = podPhase;
+    }
+
+    public int getRestartCount() {
+        return restartCount;
+    }
+
+    public void setRestartCount(int restartCount) {
+        this.restartCount = restartCount;
     }
 
     @Override

@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.kubeflow.api.GraphUpdatePublisher;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -29,16 +31,37 @@ public class OtlpMetricsIngestionController {
     private static final Logger log = LoggerFactory.getLogger(OtlpMetricsIngestionController.class);
 
     private final NetworkFlowProcessor networkFlowProcessor;
+    private final ResourceMetricsProcessor resourceMetricsProcessor;
     private final ObjectMapper objectMapper;
+    private final GraphUpdatePublisher graphUpdatePublisher;
 
     public OtlpMetricsIngestionController(NetworkFlowProcessor networkFlowProcessor,
-            ObjectMapper objectMapper) {
+            ResourceMetricsProcessor resourceMetricsProcessor,
+            ObjectMapper objectMapper,
+            GraphUpdatePublisher graphUpdatePublisher) {
         this.networkFlowProcessor = networkFlowProcessor;
+        this.resourceMetricsProcessor = resourceMetricsProcessor;
         this.objectMapper = objectMapper;
+        this.graphUpdatePublisher = graphUpdatePublisher;
     }
 
-    @Operation(summary = "Receive OTLP metrics payload", description = "Accepts OTLP/HTTP metrics. Network flow metrics from Beyla are processed into topology edges.")
-    @ApiResponse(responseCode = "200", description = "Payload accepted")
+    @Operation(summary = "Receive OTLP metrics payload", description = """
+            Accepts an OTLP/HTTP JSON metrics export. Two types of metrics are processed:
+
+            **1. Beyla network flow metrics** (`beyla.network.flow.bytes`)
+            Emitted by [Beyla](https://grafana.com/docs/beyla/) eBPF auto-instrumentation.
+            Each data point describes bytes transferred between two Kubernetes workloads.
+            The backend uses these to register topology edges.
+
+            **2. Kubeletstats resource metrics** (`container.cpu.utilization`, `container.memory.utilization`)
+            Emitted by the OpenTelemetry [kubeletstats receiver](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/kubeletstatsreceiver).
+            The backend maps each metric to the matching workload node and uses the values to
+            compute `loadLevel` on all incoming edges of that node.
+
+            Payloads are processed in-place; individual unknown metric names are silently ignored.
+            """)
+    @ApiResponse(responseCode = "200", description = "Payload accepted and processed")
+    @ApiResponse(responseCode = "400", description = "Payload could not be parsed")
     @PostMapping(value = "/metrics", consumes = {
             MediaType.APPLICATION_JSON_VALUE,
             "application/x-protobuf",
@@ -56,6 +79,8 @@ public class OtlpMetricsIngestionController {
 
         log.debug("Received OTLP metrics payload");
         networkFlowProcessor.processMetrics(payload);
+        resourceMetricsProcessor.processMetrics(payload);
+        graphUpdatePublisher.notifyIfChanged();
         return ResponseEntity.ok().build();
     }
 

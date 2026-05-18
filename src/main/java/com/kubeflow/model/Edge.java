@@ -106,6 +106,10 @@ public class Edge {
         this.lastSeenAt = Instant.now();
     }
 
+    public void touch() {
+        this.lastSeenAt = Instant.now();
+    }
+
     public void resetWindow() {
         windowStartEpochMs = System.currentTimeMillis();
         windowRequestCount.set(0);

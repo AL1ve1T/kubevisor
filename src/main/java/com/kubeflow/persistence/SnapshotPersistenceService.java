@@ -37,14 +37,23 @@ public class SnapshotPersistenceService {
     public void save(GraphSnapshot snapshot) {
         try {
             String json = objectMapper.writeValueAsString(snapshot);
-            repository.save(new GraphSnapshotEntity(snapshot.generatedAt(), json));
+            repository.save(new GraphSnapshotEntity(snapshot.generatedAt(), snapshot.namespace(), json));
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize graph snapshot", e);
         }
     }
 
     public List<GraphSnapshot> getHistory(Instant from, Instant to) {
-        return repository.findByCapturedAtBetweenOrderByCapturedAtAsc(from, to).stream()
+        return deserializeEntities(repository.findByCapturedAtBetweenOrderByCapturedAtAsc(from, to));
+    }
+
+    public List<GraphSnapshot> getHistory(Instant from, Instant to, String namespace) {
+        return deserializeEntities(
+                repository.findByNamespaceAndCapturedAtBetweenOrderByCapturedAtAsc(namespace, from, to));
+    }
+
+    private List<GraphSnapshot> deserializeEntities(List<GraphSnapshotEntity> entities) {
+        return entities.stream()
                 .map(entity -> {
                     try {
                         return objectMapper.readValue(entity.getSnapshotJson(), GraphSnapshot.class);

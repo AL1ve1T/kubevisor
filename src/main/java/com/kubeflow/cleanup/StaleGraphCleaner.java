@@ -1,6 +1,7 @@
 package com.kubeflow.cleanup;
 
 import com.kubeflow.aggregation.GraphStateManager;
+import com.kubeflow.api.GraphUpdatePublisher;
 import com.kubeflow.model.Edge;
 import com.kubeflow.model.Node;
 import com.kubeflow.support.KubeflowProperties;
@@ -24,11 +25,14 @@ public class StaleGraphCleaner {
 
     private final GraphStateManager graphStateManager;
     private final KubeflowProperties properties;
+    private final GraphUpdatePublisher graphUpdatePublisher;
 
     public StaleGraphCleaner(GraphStateManager graphStateManager,
-            KubeflowProperties properties) {
+            KubeflowProperties properties,
+            GraphUpdatePublisher graphUpdatePublisher) {
         this.graphStateManager = graphStateManager;
         this.properties = properties;
+        this.graphUpdatePublisher = graphUpdatePublisher;
     }
 
     @Scheduled(fixedDelayString = "${kubeflow.cleanup.interval-seconds:30}000")
@@ -55,6 +59,7 @@ public class StaleGraphCleaner {
 
         if (!staleEdges.isEmpty() || !staleNodes.isEmpty()) {
             log.info("Cleaned {} stale edges and {} stale nodes", staleEdges.size(), staleNodes.size());
+            graphUpdatePublisher.notifyIfChanged();
         }
     }
 }

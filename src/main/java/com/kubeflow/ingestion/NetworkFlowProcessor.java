@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Processes OTLP metrics payloads from Beyla network metrics.
@@ -20,9 +19,15 @@ public class NetworkFlowProcessor {
 
     private static final Logger log = LoggerFactory.getLogger(NetworkFlowProcessor.class);
 
+    private static final java.util.Set<String> IGNORED_WORKLOAD_NAMES = java.util.Set.of(
+            "kubernetes",
+            "kubernetes.default.svc",
+            "kubernetes.default.svc.cluster.local");
     private static final String NETWORK_FLOW_METRIC = "beyla.network.flow.bytes";
-    private static final Set<Integer> APPLICATION_PORTS = Set.of(8081, 8082, 8083, 5432);
-    private static final int POSTGRES_PORT = 5432;
+    private static final String EXTERNAL_NODE_NAME = "external";
+    // Synthetic source node for traffic originating from a different namespace
+    // within the cluster.
+    private static final String INTERNAL_NODE_NAME = "internal";
 
     private final GraphStateManager graphStateManager;
 
@@ -64,68 +69,106 @@ public class NetworkFlowProcessor {
             String dstOwner = attrs.get("k8s.dst.owner.name");
             String srcNamespace = attrs.get("k8s.src.namespace");
             String dstNamespace = attrs.get("k8s.dst.namespace");
-            String dstPortStr = attrs.get("dst.port");
 
-            if (srcOwner == null || dstOwner == null) {
+            // Destination must always be a known workload in a known namespace
+            if (dstOwner == null || dstOwner.isEmpty()) {
+                continue;
+            }
+            if (dstNamespace == null || dstNamespace.isEmpty()) {
+                continue;
+            }
+            if (isIgnoredWorkloadName(srcOwner) || isIgnoredWorkloadName(dstOwner)) {
                 continue;
             }
 
-            // Skip empty owner names (unresolved pods)
-            if (srcOwner.isEmpty() || dstOwner.isEmpty()) {
-                continue;
+            boolean isTrulyExternal = srcOwner == null || srcOwner.isEmpty();
+            boolean isCrossNamespace = !isTrulyExternal
+                    && srcNamespace != null && !srcNamespace.equals(dstNamespace);
+
+            if (isTrulyExternal) {
+                // Fully external traffic: source is outside the cluster
+                graphStateManager.registerNetworkFlowEdge(EXTERNAL_NODE_NAME, null, dstOwner, dstNamespace,
+                        "HTTP", inferNodeType(dstOwner), NodeType.INPUT);
+                log.debug("External flow edge: external -> {}", dstOwner);
+                count++;
+            } else if (isCrossNamespace) {
+                // Cross-namespace traffic: source is a real workload but in a different
+                // namespace.
+                // Collapsed into a synthetic "internal" node to keep each snapshot
+                // namespace-local.
+                graphStateManager.registerNetworkFlowEdge(INTERNAL_NODE_NAME, null, dstOwner, dstNamespace,
+                        inferProtocol(dstOwner), inferNodeType(dstOwner), NodeType.INPUT);
+                log.debug("Cross-namespace flow edge: {}/{} -> {}/{}", srcNamespace, srcOwner, dstNamespace, dstOwner);
+                count++;
+            } else {
+                // Internal traffic: both source and destination in the same namespace
+                // Skip self-referencing flows
+                if (srcOwner.equals(dstOwner)) {
+                    continue;
+                }
+                graphStateManager.registerNetworkFlowEdge(srcOwner, srcNamespace, dstOwner, dstNamespace,
+                        inferProtocol(dstOwner), inferNodeType(dstOwner), NodeType.SERVICE);
+                log.debug("Network flow edge: {} -> {}", srcOwner, dstOwner);
+                count++;
             }
-
-            // Skip self-referencing flows
-            if (srcOwner.equals(dstOwner)) {
-                continue;
-            }
-
-            // Filter to flows within the default namespace (demo services)
-            if (!"default".equals(srcNamespace) || !"default".equals(dstNamespace)) {
-                continue;
-            }
-
-            int dstPort = parsePort(dstPortStr);
-
-            // Only include flows to known application ports (skip response/infra traffic)
-            if (!APPLICATION_PORTS.contains(dstPort)) {
-                continue;
-            }
-            NodeType targetType = resolveTargetType(dstPort);
-            String protocol = resolveProtocol(dstPort);
-
-            graphStateManager.registerNetworkFlowEdge(srcOwner, dstOwner, protocol, targetType);
-            log.debug("Network flow edge: {} -> {} (port={}, protocol={})", srcOwner, dstOwner, dstPort, protocol);
-            count++;
         }
         return count;
     }
 
-    private NodeType resolveTargetType(int port) {
-        if (port == POSTGRES_PORT) {
+    /**
+     * Infers node type from Kubernetes workload name using naming conventions.
+     * Used as initial heuristic when no OTel trace has provided authoritative
+     * type info. GraphStateManager will upgrade the type when a trace arrives.
+     */
+    NodeType inferNodeType(String ownerName) {
+        if (ownerName == null)
+            return NodeType.SERVICE;
+        String lower = ownerName.toLowerCase();
+        if (containsAny(lower, "postgres", "mysql", "mariadb", "mongo", "cassandra", "elasticsearch", "cockroach"))
             return NodeType.DATABASE;
-        }
+        if (containsAny(lower, "redis", "memcached", "hazelcast", "dragonfly"))
+            return NodeType.CACHE;
+        if (containsAny(lower, "kafka", "rabbitmq", "nats", "activemq", "pulsar"))
+            return NodeType.QUEUE;
         return NodeType.SERVICE;
     }
 
-    private String resolveProtocol(int port) {
-        if (port == POSTGRES_PORT) {
+    /**
+     * Infers protocol from Kubernetes workload name. Falls back to HTTP.
+     */
+    String inferProtocol(String ownerName) {
+        if (ownerName == null)
+            return "TCP";
+        String lower = ownerName.toLowerCase();
+        if (containsAny(lower, "postgres"))
             return "postgresql";
-        }
-        if (APPLICATION_PORTS.contains(port)) {
-            return "HTTP";
-        }
-        return "TCP";
+        if (containsAny(lower, "mysql", "mariadb"))
+            return "mysql";
+        if (containsAny(lower, "mongo"))
+            return "mongodb";
+        if (containsAny(lower, "redis", "dragonfly"))
+            return "redis";
+        if (containsAny(lower, "kafka"))
+            return "kafka";
+        if (containsAny(lower, "rabbitmq"))
+            return "amqp";
+        if (containsAny(lower, "cassandra"))
+            return "cassandra";
+        if (containsAny(lower, "elasticsearch"))
+            return "elasticsearch";
+        return "HTTP";
     }
 
-    private int parsePort(String portStr) {
-        if (portStr == null)
-            return 0;
-        try {
-            return Integer.parseInt(portStr);
-        } catch (NumberFormatException e) {
-            return 0;
+    private boolean containsAny(String value, String... keywords) {
+        for (String kw : keywords) {
+            if (value.contains(kw))
+                return true;
         }
+        return false;
+    }
+
+    private boolean isIgnoredWorkloadName(String ownerName) {
+        return ownerName != null && IGNORED_WORKLOAD_NAMES.contains(ownerName.toLowerCase());
     }
 
     private List<Map<String, Object>> extractDataPoints(Map<String, Object> metric) {

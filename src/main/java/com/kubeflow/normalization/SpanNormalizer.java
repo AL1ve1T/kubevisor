@@ -61,7 +61,17 @@ public class SpanNormalizer {
     private InteractionEvent normalizeServerSpan(ParsedSpan span) {
         String caller = resolveCallerService(span);
         if (caller == null) {
-            return null;
+            // Skip infrastructure probes (Kubernetes liveness/readiness checks etc.)
+            if (isInfraProbe(span)) {
+                return null;
+            }
+            // Only fall back to "external" for HTTP/gRPC server spans.
+            // Non-HTTP spans (postgres connections, raw TCP) have an unknowable caller
+            // and are already covered by CLIENT spans from the OTel-instrumented caller.
+            if (!isHttpServerSpan(span)) {
+                return null;
+            }
+            caller = "external";
         }
 
         return new InteractionEvent(
@@ -76,6 +86,32 @@ public class SpanNormalizer {
                 span.durationMs(),
                 span.isError(),
                 span.startInstant());
+    }
+
+    private boolean isHttpServerSpan(ParsedSpan span) {
+        // HTTP spans from Spring Boot OTel and Beyla always carry a method attribute
+        return span.attributes().containsKey("method")
+                || span.attributes().containsKey("http.method")
+                || span.attributes().containsKey("rpc.method");
+    }
+
+    private boolean isInfraProbe(ParsedSpan span) {
+        // Check the uri attribute (Spring Boot sets this to the path template)
+        String uri = span.attributes().get("uri");
+        if (uri == null)
+            uri = span.attributes().get("http.target");
+        if (uri == null)
+            uri = span.attributes().get("url.path");
+        if (uri != null) {
+            String lower = uri.toLowerCase();
+            if (lower.startsWith("/actuator") || lower.startsWith("/health")
+                    || lower.startsWith("/readyz") || lower.startsWith("/livez")) {
+                return true;
+            }
+        }
+        // Fall back to span name (e.g. "http get /actuator/health")
+        String spanName = span.spanName();
+        return spanName != null && spanName.toLowerCase().contains("/actuator");
     }
 
     private String resolveCallerService(ParsedSpan span) {

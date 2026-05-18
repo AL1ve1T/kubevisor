@@ -94,10 +94,15 @@ public class SpanParser {
         if (code instanceof Number n)
             return n.intValue();
         if (code instanceof String s) {
+            // OTLP JSON serializes the status code enum as its string name in some SDKs
+            if ("STATUS_CODE_ERROR".equals(s) || "ERROR".equals(s))
+                return 2;
+            if ("STATUS_CODE_OK".equals(s) || "OK".equals(s))
+                return 1;
             try {
                 return Integer.parseInt(s);
-            } catch (NumberFormatException e) {
-                /* ignore */ }
+            } catch (NumberFormatException ignored) {
+            }
         }
         return 0;
     }

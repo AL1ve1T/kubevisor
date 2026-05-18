@@ -3,15 +3,17 @@ package com.kubeflow.aggregation;
 import com.kubeflow.model.GraphSnapshot;
 import com.kubeflow.model.InteractionEvent;
 import com.kubeflow.model.NodeType;
+import com.kubeflow.support.KubeflowProperties;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class GraphStateManagerTest {
 
-    private final GraphStateManager manager = new GraphStateManager();
+    private final GraphStateManager manager = new GraphStateManager(new KubeflowProperties());
 
     @Test
     void registerNode_createsNodeWithoutEdge() {
@@ -103,14 +105,27 @@ class GraphStateManagerTest {
     }
 
     @Test
-    void buildSnapshot_returnsCorrectDtos() {
+    void registerNetworkFlowEdge_doesNotCountByteSamplesAsRequests() {
+        manager.registerNetworkFlowEdge("svc-a", "ns", "svc-b", "ns", "HTTP", NodeType.SERVICE, NodeType.SERVICE);
+
+        var edge = manager.getEdges().get("svc-a->svc-b");
+        assertNotNull(edge);
+        assertEquals(0, edge.getRequestCount());
+        assertEquals(0.0, edge.getRequestsPerSecond(), 0.001);
+    }
+
+    @Test
+    void buildSnapshots_returnsCorrectDtos() {
         InteractionEvent event = new InteractionEvent(
                 "t1", "s1", "auth", "demo", "userdb", "demo",
                 NodeType.DATABASE, "postgresql", 10.0, false, Instant.now());
 
         manager.applyEvent(event);
-        GraphSnapshot snapshot = manager.buildSnapshot();
+        List<GraphSnapshot> snapshots = manager.buildSnapshots();
 
+        assertEquals(1, snapshots.size());
+        GraphSnapshot snapshot = snapshots.get(0);
+        assertEquals("demo", snapshot.namespace());
         assertEquals(2, snapshot.nodes().size());
         assertEquals(1, snapshot.edges().size());
         assertNotNull(snapshot.generatedAt());
