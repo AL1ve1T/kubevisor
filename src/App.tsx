@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { TopologyCanvas } from "./components/TopologyCanvas";
+import { ControlPanel } from "./components/ControlPanel";
 import { useGraphSubscription } from "./hooks/useGraphSubscription";
 import { formatTimeAgo } from "./helpers/timeAgo";
+import { DEFAULT_STRATEGY_ID, TOPOLOGY_STRATEGIES } from "./strategies";
+import { mockSnapshot } from "./data/mockSnapshot";
+
+const USE_MOCK = false;
 
 export function App() {
-    const { snapshots, lastRefreshAt, status, error } = useGraphSubscription();
+    const { snapshots: liveSnapshots, lastRefreshAt, status, error } = useGraphSubscription();
+    const snapshots = USE_MOCK ? [mockSnapshot] : liveSnapshots;
     const [clockNow, setClockNow] = useState(() => Date.now());
     const [selectedNamespace, setSelectedNamespace] = useState<string | null>(null);
+    const [strategyId, setStrategyId] = useState(DEFAULT_STRATEGY_ID);
 
     useEffect(() => {
         const timer = window.setInterval(() => setClockNow(Date.now()), 30_000);
@@ -43,76 +50,46 @@ export function App() {
                 background: "#ffffff",
                 overflow: "hidden",
                 position: "relative",
+                display: "flex",
             }}
         >
-            {activeSnapshot ? <TopologyCanvas snapshot={activeSnapshot} /> : null}
+            <ControlPanel
+                strategies={TOPOLOGY_STRATEGIES}
+                activeStrategyId={strategyId}
+                onStrategyChange={setStrategyId}
+                namespaces={namespaces}
+                selectedNamespace={selectedNamespace}
+                onNamespaceChange={setSelectedNamespace}
+                status={status}
+                lastRefreshText={lastRefreshText}
+            />
 
-            {!activeSnapshot && (
-                <div
-                    style={{
-                        position: "absolute",
-                        inset: 0,
-                        display: "grid",
-                        placeItems: "center",
-                        color: "#6b7280",
-                        fontFamily: "Inter, system-ui, sans-serif",
-                        fontSize: 14,
-                        zIndex: 5,
-                    }}
-                >
-                    Waiting for graph snapshot...
-                </div>
-            )}
-
-            <div
-                style={{
-                    position: "absolute",
-                    right: 12,
-                    top: 12,
-                    zIndex: 20,
-                    display: "flex",
-                    gap: 10,
-                    alignItems: "center",
-                    background: "rgba(255,255,255,0.92)",
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 8,
-                    padding: "8px 12px",
-                    fontFamily: "Inter, system-ui, sans-serif",
-                    fontSize: 12,
-                    color: "#374151",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
-                }}
-            >
-                {namespaces.length > 1 && (
-                    <select
-                        value={selectedNamespace ?? ""}
-                        onChange={(e) => setSelectedNamespace(e.target.value)}
+            {/* Canvas area offset by sidebar width */}
+            <div style={{ flex: 1, position: "relative", marginLeft: 220 }}>
+                {activeSnapshot ? (
+                    <TopologyCanvas snapshot={activeSnapshot} strategyId={strategyId} />
+                ) : (
+                    <div
                         style={{
-                            fontSize: 12,
+                            position: "absolute",
+                            inset: 0,
+                            display: "grid",
+                            placeItems: "center",
+                            color: "#6b7280",
                             fontFamily: "Inter, system-ui, sans-serif",
-                            border: "1px solid #d1d5db",
-                            borderRadius: 4,
-                            padding: "2px 6px",
-                            color: "#374151",
-                            background: "#fff",
+                            fontSize: 14,
                         }}
                     >
-                        {namespaces.map((ns) => (
-                            <option key={ns} value={ns}>
-                                {ns}
-                            </option>
-                        ))}
-                    </select>
+                        Waiting for graph snapshot...
+                    </div>
                 )}
-                <span style={{ fontWeight: 700 }}>Last refresh: {lastRefreshText}</span>
-                <span style={{ color: "#6b7280" }}>Status: {status}</span>
             </div>
 
             {error && (
                 <div
                     style={{
                         position: "absolute",
-                        left: 12,
+                        left: 232,
                         bottom: 12,
                         zIndex: 20,
                         background: "rgba(254,242,242,0.95)",

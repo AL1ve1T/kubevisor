@@ -1,3 +1,5 @@
+export type LoadLevel = "NORMAL" | "ELEVATED" | "HIGH" | "CRITICAL";
+
 export interface EdgeDto {
     id: string;
     sourceNodeId: string;
@@ -9,5 +11,6 @@ export interface EdgeDto {
     maxLatencyMs: number;
     errorCount: number;
     errorRate: number;
+    loadLevel: LoadLevel;
     lastSeenAt: string;
 }

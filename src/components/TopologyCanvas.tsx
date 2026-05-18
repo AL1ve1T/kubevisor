@@ -4,14 +4,19 @@ import type { EdgeDto } from "../models";
 import type { NodeDto } from "../models";
 import { GraphNode } from "./GraphNode";
 import { GraphEdge } from "./GraphEdge";
+import { GraphCorridor } from "./GraphCorridor";
 import { EdgePopover } from "./EdgePopover";
+import { NodePopover } from "./NodePopover";
 import { useHoverState } from "../hooks/useHoverState";
 import { useZoomPan } from "../hooks/useZoomPan";
-import { computeEdgePositions } from "../helpers/edgeHelpers";
+import { useEdgePicking } from "../hooks/useEdgePicking";
+import { getStrategy } from "../strategies";
 import { getColumnLabel, getColumnLabelScreenX } from "../helpers/columnHelpers";
+import { BAR_WIDTH, buildNodeGeometries, NODE_HEIGHT, NODE_WIDTH, type NodeGeometry } from "../helpers/nodeGeometry";
 
 interface TopologyCanvasProps {
     snapshot: GraphSnapshot;
+    strategyId: string;
 }
 
 const CANVAS_W = 1000;
@@ -61,9 +66,10 @@ interface ColumnInfo {
 /** Place nodes in columns, vertically centered per column */
 function computeLayout(
     nodes: NodeDto[],
-    edges: EdgeDto[],
+    nodeCols: Record<string, number>,
+    nodeGeometries: Record<string, NodeGeometry>,
 ): { positions: Record<string, { x: number; y: number }>; colSpacing: number; columns: ColumnInfo[] } {
-    const cols = assignColumns(nodes, edges);
+    const cols = nodeCols;
     const maxCol = Math.max(...Object.values(cols), 0);
 
     // Group nodes by column
@@ -80,27 +86,39 @@ function computeLayout(
 
     for (let c = 0; c <= maxCol; c++) {
         const bucket = buckets[c];
-        const rowSpacing = bucket.length > 1 ? usableH / (bucket.length - 1) : 0;
         const x = PAD_X + c * colSpacing;
 
         columns.push({ x, nodeIds: bucket });
 
+        const heights = bucket.map((id) => nodeGeometries[id]?.height ?? NODE_HEIGHT);
+        const totalHeights = heights.reduce((sum, height) => sum + height, 0);
+        const gap = bucket.length > 1 ? Math.max(18, (usableH - totalHeights) / (bucket.length - 1)) : 0;
+        const contentHeight = totalHeights + gap * Math.max(0, bucket.length - 1);
+        let cursor = CANVAS_H / 2 - contentHeight / 2;
+
         bucket.forEach((id, rowIdx) => {
+            const height = heights[rowIdx];
             positions[id] = {
                 x,
-                y:
-                    bucket.length === 1
-                        ? CANVAS_H / 2
-                        : PAD_Y + rowIdx * rowSpacing,
+                y: cursor + height / 2,
             };
+            cursor += height + gap;
         });
     }
 
     return { positions, colSpacing, columns };
 }
 
-export function TopologyCanvas({ snapshot }: TopologyCanvasProps) {
-    const { positions, colSpacing, columns } = computeLayout(snapshot.nodes, snapshot.edges);
+export function TopologyCanvas({ snapshot, strategyId }: TopologyCanvasProps) {
+    const nodeCols = useMemo(() => assignColumns(snapshot.nodes, snapshot.edges), [snapshot.nodes, snapshot.edges]);
+    const nodeGeometries = useMemo(
+        () => buildNodeGeometries(snapshot.nodes, snapshot.edges, nodeCols),
+        [snapshot.nodes, snapshot.edges, nodeCols],
+    );
+    const { positions, colSpacing, columns } = useMemo(
+        () => computeLayout(snapshot.nodes, nodeCols, nodeGeometries),
+        [snapshot.nodes, nodeCols, nodeGeometries],
+    );
 
     const svgRef = useRef<SVGSVGElement>(null);
 
@@ -110,16 +128,60 @@ export function TopologyCanvas({ snapshot }: TopologyCanvasProps) {
         return m;
     }, [snapshot.nodes]);
 
+    const activeStrategy = useMemo(() => getStrategy(strategyId), [strategyId]);
+
+    const adjustedPositions = useMemo(
+        () =>
+            activeStrategy.adjustPositions
+                ? activeStrategy.adjustPositions(positions, snapshot.nodes, nodeCols, nodeGeometries)
+                : positions,
+        [activeStrategy, positions, snapshot.nodes, nodeCols, nodeGeometries],
+    );
+
+    const { edgeItems: edgeRenderItems, corridorItems } = useMemo(
+        () => activeStrategy.build(snapshot.nodes, snapshot.edges, adjustedPositions, nodeMap, nodeCols, colSpacing, nodeGeometries),
+        [snapshot.nodes, snapshot.edges, adjustedPositions, nodeMap, nodeCols, colSpacing, nodeGeometries, activeStrategy],
+    );
+
+    /**
+     * For each node, determine whether it has outgoing edges going RIGHT (forward)
+     * or incoming edges arriving from the RIGHT (backward edges from a higher column).
+     * Both hub types are rendered on the right side of the node.
+     */
+    const nodeHubPresence = useMemo(() => {
+        if (activeStrategy.hideHubCapsules) {
+            return { hasRightOut: new Set<string>(), hasRightIn: new Set<string>(), hasLeftIn: new Set<string>() };
+        }
+        const hasRightOut = new Set<string>();
+        const hasRightIn = new Set<string>(); // same-col or backward edges → right IN hub
+        const hasLeftIn = new Set<string>();  // forward edges → left IN indicator
+        for (const e of snapshot.edges) {
+            hasRightOut.add(e.sourceNodeId);
+            const srcCol = nodeCols[e.sourceNodeId] ?? 0;
+            const tgtCol = nodeCols[e.targetNodeId] ?? 0;
+            if (tgtCol > srcCol) {
+                hasLeftIn.add(e.targetNodeId);
+            } else {
+                hasRightIn.add(e.targetNodeId);
+            }
+        }
+        return { hasRightOut, hasRightIn, hasLeftIn };
+    }, [snapshot.edges, nodeCols, activeStrategy]);
+
     // Compute bounding box around all nodes, expanded by 70% of viewport in each direction
     const bounds = useMemo(() => {
-        const xs = Object.values(positions).map((p) => p.x);
-        const ys = Object.values(positions).map((p) => p.y);
-        const NODE_WIDTH = 160;
-        const NODE_HEIGHT = 56;
-        const rawMinX = Math.min(...xs) - NODE_WIDTH / 2;
-        const rawMaxX = Math.max(...xs) + NODE_WIDTH / 2;
-        const rawMinY = Math.min(...ys) - NODE_HEIGHT / 2;
-        const rawMaxY = Math.max(...ys) + NODE_HEIGHT / 2;
+        const rawMinX = Math.min(
+            ...snapshot.nodes.map((node) => adjustedPositions[node.id].x - ((node.type === "INPUT" ? BAR_WIDTH : nodeGeometries[node.id]?.width ?? NODE_WIDTH) / 2)),
+        );
+        const rawMaxX = Math.max(
+            ...snapshot.nodes.map((node) => adjustedPositions[node.id].x + ((node.type === "INPUT" ? BAR_WIDTH : nodeGeometries[node.id]?.width ?? NODE_WIDTH) / 2)),
+        );
+        const rawMinY = Math.min(
+            ...snapshot.nodes.map((node) => (node.type === "INPUT" ? 0 : adjustedPositions[node.id].y - ((nodeGeometries[node.id]?.height ?? NODE_HEIGHT) / 2))),
+        );
+        const rawMaxY = Math.max(
+            ...snapshot.nodes.map((node) => (node.type === "INPUT" ? CANVAS_H : adjustedPositions[node.id].y + ((nodeGeometries[node.id]?.height ?? NODE_HEIGHT) / 2))),
+        );
         const graphW = rawMaxX - rawMinX;
         const graphH = rawMaxY - rawMinY;
         const padX = graphW * 0.7;
@@ -130,7 +192,7 @@ export function TopologyCanvas({ snapshot }: TopologyCanvasProps) {
             minY: rawMinY - padY,
             maxY: rawMaxY + padY,
         };
-    }, [positions]);
+    }, [nodeGeometries, adjustedPositions, snapshot.nodes]);
 
     // Use custom hooks for zoom/pan and hover management
     const { zoom, pan, isPanning, handleMouseDown, handleMouseMove, handleMouseUp } = useZoomPan(
@@ -139,12 +201,19 @@ export function TopologyCanvas({ snapshot }: TopologyCanvasProps) {
     );
 
     const {
+        hoveredNodeId,
         setHoveredNodeId,
-        setHoveredEdgeId,
+        setHoveredEdgeIds,
         clearHover,
         highlightedNodes,
         highlightedEdges,
+        selectedNodeId,
+        isFocusMode,
+        toggleSelectedNode,
+        clearSelection,
     } = useHoverState(snapshot.nodes, snapshot.edges);
+
+    const { pickAt } = useEdgePicking(edgeRenderItems, corridorItems);
 
     const [selectedEdge, setSelectedEdge] = useState<{
         edge: EdgeDto;
@@ -152,12 +221,53 @@ export function TopologyCanvas({ snapshot }: TopologyCanvasProps) {
         y: number;
     } | null>(null);
 
-    const handleEdgeClick = (edge: EdgeDto, screenX: number, screenY: number) => {
-        setSelectedEdge({ edge, x: screenX, y: screenY });
+    const [selectedNodePopover, setSelectedNodePopover] = useState<{
+        nodeId: string;
+        x: number;
+        y: number;
+    } | null>(null);
+
+    const handleNodeClick = (nodeId: string, e: React.MouseEvent) => {
+        const isDeselecting = selectedNodeId === nodeId;
+        toggleSelectedNode(nodeId);
+        setSelectedEdge(null);
+        setSelectedNodePopover(isDeselecting ? null : { nodeId, x: e.clientX, y: e.clientY });
     };
 
-    const handleBackgroundClick = () => {
+    const getWorldPoint = (e: React.MouseEvent<SVGSVGElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        return {
+            x: (e.clientX - rect.left - pan.x) / zoom,
+            y: (e.clientY - rect.top - pan.y) / zoom,
+        };
+    };
+
+    const handleCanvasMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+        handleMouseMove(e);
+        if (isPanning || hoveredNodeId) return;
+
+        const picked = pickAt(getWorldPoint(e));
+        setHoveredEdgeIds(picked?.edgeIds ?? null);
+    };
+
+    const handleCanvasClick = (e: React.MouseEvent<SVGSVGElement>) => {
+        // Clicking the canvas background clears both popovers and node selection
+        clearSelection();
         setSelectedEdge(null);
+        setSelectedNodePopover(null);
+
+        if (hoveredNodeId) return;
+
+        const picked = pickAt(getWorldPoint(e));
+        if (picked?.edge) {
+            setSelectedEdge({ edge: picked.edge, x: e.clientX, y: e.clientY });
+            return;
+        }
+    };
+
+    const handleCanvasMouseLeave = () => {
+        handleMouseUp();
+        clearHover();
     };
 
     return (
@@ -175,11 +285,11 @@ export function TopologyCanvas({ snapshot }: TopologyCanvasProps) {
                 width="100%"
                 height="100%"
                 style={{ background: "#ffffff", display: "block" }}
-                onClick={handleBackgroundClick}
+                onClick={handleCanvasClick}
                 onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
+                onMouseMove={handleCanvasMouseMove}
                 onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
+                onMouseLeave={handleCanvasMouseLeave}
             >
                 {/* Dot grid pattern */}
                 <defs>
@@ -247,26 +357,33 @@ export function TopologyCanvas({ snapshot }: TopologyCanvasProps) {
                         );
                     })}
 
-                    {/* Edges first so they render behind nodes */}
-                    {snapshot.edges.map((edge) => {
-                        const { sourcePos, targetPos, isSameColumn } = computeEdgePositions(
-                            edge,
-                            positions,
-                            nodeMap,
+                    {/* Corridors render behind stubs/branches */}
+                    {corridorItems.map((corridor) => {
+                        const isHighlighted = corridor.edgeIds.some((id) => highlightedEdges.has(id));
+                        return (
+                            <GraphCorridor
+                                key={corridor.id}
+                                corridor={corridor}
+                                highlighted={isHighlighted}
+                            />
                         );
+                    })}
 
+                    {/* Edge stubs and branches render above corridors, below nodes */}
+                    {edgeRenderItems.map((item) => {
+                        const isHighlighted = item.edgeIds.some((id) => highlightedEdges.has(id));
                         return (
                             <GraphEdge
-                                key={edge.id}
-                                edge={edge}
-                                sourcePos={sourcePos}
-                                targetPos={targetPos}
-                                sameColumn={isSameColumn}
-                                colSpacing={colSpacing}
-                                highlighted={highlightedEdges.has(edge.id)}
-                                onMouseEnter={setHoveredEdgeId}
-                                onMouseLeave={clearHover}
-                                onClick={handleEdgeClick}
+                                key={item.id}
+                                routeId={item.id}
+                                path={item.path}
+                                end={item.end}
+                                color={item.color}
+                                width={item.width}
+                                rps={item.rps}
+                                showEndDot={item.showEndDot}
+                                hubTint={item.hubTint}
+                                highlighted={isHighlighted}
                             />
                         );
                     })}
@@ -276,11 +393,17 @@ export function TopologyCanvas({ snapshot }: TopologyCanvasProps) {
                         <GraphNode
                             key={node.id}
                             node={node}
-                            position={positions[node.id]}
+                            position={adjustedPositions[node.id]}
+                            size={nodeGeometries[node.id]}
                             highlighted={highlightedNodes.has(node.id)}
+                            selected={selectedNodeId === node.id}
+                            hasRightOut={nodeHubPresence.hasRightOut.has(node.id)}
+                            hasRightIn={nodeHubPresence.hasRightIn.has(node.id)}
+                            hasLeftIn={nodeHubPresence.hasLeftIn.has(node.id)}
                             canvasHeight={CANVAS_H}
                             onMouseEnter={setHoveredNodeId}
                             onMouseLeave={clearHover}
+                            onClick={handleNodeClick}
                         />
                     ))}
                 </g>
@@ -326,6 +449,73 @@ export function TopologyCanvas({ snapshot }: TopologyCanvasProps) {
                     y={selectedEdge.y}
                     onClose={() => setSelectedEdge(null)}
                 />
+            )}
+
+            {selectedNodePopover && (() => {
+                const popNode = nodeMap.get(selectedNodePopover.nodeId);
+                if (!popNode) return null;
+                const outgoing = snapshot.edges.filter((e) => e.sourceNodeId === selectedNodePopover.nodeId);
+                const incoming = snapshot.edges.filter((e) => e.targetNodeId === selectedNodePopover.nodeId);
+                return (
+                    <NodePopover
+                        node={popNode}
+                        outgoingEdges={outgoing}
+                        incomingEdges={incoming}
+                        nodeMap={nodeMap}
+                        x={selectedNodePopover.x}
+                        y={selectedNodePopover.y}
+                        onClose={() => { clearSelection(); setSelectedNodePopover(null); }}
+                    />
+                );
+            })()}
+
+            {/* Focus mode indicator – shown when a node is selected */}
+            {isFocusMode && (
+                <div
+                    style={{
+                        position: "absolute",
+                        bottom: 16,
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        zIndex: 10,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        background: "#1e40af",
+                        color: "#ffffff",
+                        fontSize: 13,
+                        fontFamily: "Inter, system-ui, sans-serif",
+                        fontWeight: 600,
+                        padding: "6px 14px",
+                        borderRadius: 20,
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+                        pointerEvents: "auto",
+                        userSelect: "none",
+                    }}
+                >
+                    <span>Focus: {snapshot.nodes.find((n) => n.id === selectedNodeId)?.name ?? selectedNodeId}</span>
+                    <button
+                        onClick={clearSelection}
+                        style={{
+                            background: "rgba(255,255,255,0.2)",
+                            border: "none",
+                            borderRadius: "50%",
+                            color: "#ffffff",
+                            cursor: "pointer",
+                            width: 20,
+                            height: 20,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 14,
+                            lineHeight: 1,
+                            padding: 0,
+                        }}
+                        title="Exit focus mode"
+                    >
+                        ×
+                    </button>
+                </div>
             )}
         </div>
     );

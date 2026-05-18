@@ -37,7 +37,7 @@ function buildAdjacency(nodes: NodeDto[], edges: EdgeDto[]): Adjacency {
 function computeHighlights(
     adjacency: Adjacency,
     hoveredNodeId: string | null,
-    hoveredEdgeId: string | null,
+    hoveredEdgeIds: string[] | null,
 ) {
     const highlightedNodes = new Set<string>();
     const highlightedEdges = new Set<string>();
@@ -49,12 +49,14 @@ function computeHighlights(
             adj.nodeIds.forEach((id) => highlightedNodes.add(id));
             adj.edgeIds.forEach((id) => highlightedEdges.add(id));
         }
-    } else if (hoveredEdgeId) {
-        highlightedEdges.add(hoveredEdgeId);
-        const endpoints = adjacency.byEdge.get(hoveredEdgeId);
-        if (endpoints) {
-            highlightedNodes.add(endpoints.sourceNodeId);
-            highlightedNodes.add(endpoints.targetNodeId);
+    } else if (hoveredEdgeIds && hoveredEdgeIds.length > 0) {
+        for (const edgeId of hoveredEdgeIds) {
+            highlightedEdges.add(edgeId);
+            const endpoints = adjacency.byEdge.get(edgeId);
+            if (endpoints) {
+                highlightedNodes.add(endpoints.sourceNodeId);
+                highlightedNodes.add(endpoints.targetNodeId);
+            }
         }
     }
 
@@ -62,31 +64,79 @@ function computeHighlights(
 }
 
 /**
- * Hook for managing hover state and highlight computation
+ * Compute the 1-hop neighborhood (nodes + edges) of a selected node.
+ * Used for Focus Mode to dim everything outside the selection.
+ */
+function computeNeighborhood(adjacency: Adjacency, selectedNodeId: string | null) {
+    if (!selectedNodeId) {
+        return { focusedNodes: new Set<string>(), focusedEdges: new Set<string>() };
+    }
+    const focusedNodes = new Set<string>([selectedNodeId]);
+    const focusedEdges = new Set<string>();
+    const adj = adjacency.byNode.get(selectedNodeId);
+    if (adj) {
+        adj.nodeIds.forEach((id) => focusedNodes.add(id));
+        adj.edgeIds.forEach((id) => focusedEdges.add(id));
+    }
+    return { focusedNodes, focusedEdges };
+}
+
+/**
+ * Hook for managing hover state, node selection, and highlight computation.
+ *
+ * Focus mode is active when a node is selected via click. In Focus mode:
+ *   - only the selected node and its 1-hop neighbours are fully visible
+ *   - all other edges are dimmed
  */
 export function useHoverState(nodes: NodeDto[], edges: EdgeDto[]) {
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-    const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
+    const [hoveredEdgeIds, setHoveredEdgeIds] = useState<string[] | null>(null);
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
     const adjacency = useMemo(() => buildAdjacency(nodes, edges), [nodes, edges]);
 
     const { highlightedNodes, highlightedEdges } = useMemo(
-        () => computeHighlights(adjacency, hoveredNodeId, hoveredEdgeId),
-        [adjacency, hoveredNodeId, hoveredEdgeId],
+        () => computeHighlights(adjacency, hoveredNodeId, hoveredEdgeIds),
+        [adjacency, hoveredNodeId, hoveredEdgeIds],
     );
+
+    const isFocusMode = selectedNodeId !== null;
+
+    const { focusedNodes, focusedEdges } = useMemo(
+        () => computeNeighborhood(adjacency, selectedNodeId),
+        [adjacency, selectedNodeId],
+    );
+
+    /** Toggle Focus mode: click the same node again to deselect */
+    const toggleSelectedNode = (nodeId: string) => {
+        setSelectedNodeId((prev) => (prev === nodeId ? null : nodeId));
+    };
+
+    const clearSelection = () => setSelectedNodeId(null);
+
+    const setHoveredEdgeId = (edgeId: string) => {
+        setHoveredEdgeIds([edgeId]);
+    };
 
     const clearHover = () => {
         setHoveredNodeId(null);
-        setHoveredEdgeId(null);
+        setHoveredEdgeIds(null);
     };
 
     return {
         hoveredNodeId,
-        hoveredEdgeId,
+        hoveredEdgeIds,
         setHoveredNodeId,
         setHoveredEdgeId,
+        setHoveredEdgeIds,
         clearHover,
         highlightedNodes,
         highlightedEdges,
+        selectedNodeId,
+        isFocusMode,
+        focusedNodes,
+        focusedEdges,
+        toggleSelectedNode,
+        clearSelection,
     };
 }
