@@ -18,7 +18,10 @@ public enum PodPhase {
     /** Pod is scheduled but containers have not started yet. */
     PENDING,
 
-    /** Containers exist but the readiness probe is failing (initializing or degraded). */
+    /**
+     * Containers exist but the readiness probe is failing (initializing or
+     * degraded).
+     */
     NOT_READY,
 
     /** At least one container is in CrashLoopBackOff or was OOMKilled. */

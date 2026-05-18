@@ -35,15 +35,16 @@ import java.util.stream.Collectors;
  * live pod health signals: phase (Running, CrashLoopBackOff, etc.) and the
  * total container restart count.
  *
- * <p>Operates in two modes:
+ * <p>
+ * Operates in two modes:
  * <ul>
- *   <li><b>In-cluster</b>: detected via the {@code KUBERNETES_SERVICE_HOST}
- *       environment variable. Uses the pod's ServiceAccount bearer token and
- *       connects to {@code https://kubernetes.default.svc} with TLS
- *       verification disabled (Minikube CA is self-signed).</li>
- *   <li><b>Local dev</b>: connects to the URL configured in
- *       {@code kubeflow.k8s-api-url} (default {@code http://localhost:8001},
- *       which is where {@code kubectl proxy} listens).</li>
+ * <li><b>In-cluster</b>: detected via the {@code KUBERNETES_SERVICE_HOST}
+ * environment variable. Uses the pod's ServiceAccount bearer token and
+ * connects to {@code https://kubernetes.default.svc} with TLS
+ * verification disabled (Minikube CA is self-signed).</li>
+ * <li><b>Local dev</b>: connects to the URL configured in
+ * {@code kubeflow.k8s-api-url} (default {@code http://localhost:8001},
+ * which is where {@code kubectl proxy} listens).</li>
  * </ul>
  *
  * Failures are handled gracefully — consecutive failures are logged at WARN
@@ -272,7 +273,7 @@ public class PodStatusScraper {
     private static HttpClient buildInsecureHttpClient() {
         try {
             SSLContext sslCtx = SSLContext.getInstance("TLS");
-            sslCtx.init(null, new TrustManager[]{new X509TrustManager() {
+            sslCtx.init(null, new TrustManager[] { new X509TrustManager() {
                 public void checkClientTrusted(X509Certificate[] c, String a) {
                 }
 
@@ -282,7 +283,7 @@ public class PodStatusScraper {
                 public X509Certificate[] getAcceptedIssuers() {
                     return new X509Certificate[0];
                 }
-            }}, new SecureRandom());
+            } }, new SecureRandom());
             return HttpClient.newBuilder()
                     .sslContext(sslCtx)
                     .connectTimeout(Duration.ofSeconds(5))

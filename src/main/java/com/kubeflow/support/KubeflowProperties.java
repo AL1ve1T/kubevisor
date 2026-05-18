@@ -32,7 +32,8 @@ public class KubeflowProperties {
     private long memoryLimitBytes = 512L * 1024 * 1024;
 
     // Kubernetes API URL for pod status scraping.
-    // Empty string = auto-detect (in-cluster SA, or http://localhost:8001 for local dev).
+    // Empty string = auto-detect (in-cluster SA, or http://localhost:8001 for local
+    // dev).
     private String k8sApiUrl = "";
 
     // How often to scrape pod status from the Kubernetes API (in seconds).
