@@ -34,11 +34,9 @@ kubeflow:
   # (raw bytes from kubeletstats) to a [0,1] utilization ratio. Set this to match the
   # memory limit configured for your workload pods (default: 512 MiB).
   memory-limit-bytes: 536870912
-  # Kubernetes API URL for pod status scraping (phase + restart count).
-  # Empty = auto-detect: uses ServiceAccount when running in-cluster,
-  # or http://localhost:8001 (kubectl proxy) for local development.
-  k8s-api-url: ""
   # How often to scrape pod status from the Kubernetes API (seconds).
+  # Local dev: uses 'kubectl get pods' subprocess (inherits active kubeconfig context).
+  # In-cluster: calls the Kubernetes API directly via ServiceAccount bearer token.
   pod-status-scrape-interval-seconds: 15
 
 management:

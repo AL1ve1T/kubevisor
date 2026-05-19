@@ -44,7 +44,7 @@ class SnapshotPersistenceServiceTest {
         GraphSnapshot snapshot = new GraphSnapshot(
                 "default",
                 List.of(new GraphSnapshot.NodeDto("svc-a", "svc-a", NodeType.SERVICE, 0.0, 0.0,
-                        com.kubeflow.model.PodPhase.UNKNOWN, 0, Instant.now())),
+                        com.kubeflow.model.PodPhase.UNKNOWN, 0, null, null, Instant.now())),
                 List.of(),
                 Instant.now());
 

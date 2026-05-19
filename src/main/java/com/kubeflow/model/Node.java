@@ -2,6 +2,7 @@ package com.kubeflow.model;
 
 import java.time.Instant;
 import java.util.Objects;
+import org.springframework.lang.Nullable;
 
 /**
  * Represents a node in the service topology graph.
@@ -21,6 +22,12 @@ public class Node {
     // Pod health as scraped from the Kubernetes API
     private volatile PodPhase podPhase = PodPhase.UNKNOWN;
     private volatile int restartCount = 0;
+    // Timestamp and reason of the most recent container termination (null if never
+    // restarted)
+    @Nullable
+    private volatile Instant lastRestartAt = null;
+    @Nullable
+    private volatile String lastRestartReason = null;
 
     public Node(String id, String name, NodeType type, String namespace) {
         this.id = Objects.requireNonNull(id);
@@ -96,6 +103,24 @@ public class Node {
 
     public void setRestartCount(int restartCount) {
         this.restartCount = restartCount;
+    }
+
+    @Nullable
+    public Instant getLastRestartAt() {
+        return lastRestartAt;
+    }
+
+    public void setLastRestartAt(@Nullable Instant lastRestartAt) {
+        this.lastRestartAt = lastRestartAt;
+    }
+
+    @Nullable
+    public String getLastRestartReason() {
+        return lastRestartReason;
+    }
+
+    public void setLastRestartReason(@Nullable String lastRestartReason) {
+        this.lastRestartReason = lastRestartReason;
     }
 
     @Override

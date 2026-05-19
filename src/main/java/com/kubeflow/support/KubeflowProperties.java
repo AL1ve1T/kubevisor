@@ -31,11 +31,6 @@ public class KubeflowProperties {
     // divides container.memory.working_set by this value. Defaults to 512 MiB.
     private long memoryLimitBytes = 512L * 1024 * 1024;
 
-    // Kubernetes API URL for pod status scraping.
-    // Empty string = auto-detect (in-cluster SA, or http://localhost:8001 for local
-    // dev).
-    private String k8sApiUrl = "";
-
     // How often to scrape pod status from the Kubernetes API (in seconds).
     private int podStatusScrapeIntervalSeconds = 15;
 
@@ -117,14 +112,6 @@ public class KubeflowProperties {
 
     public void setMemoryLimitBytes(long memoryLimitBytes) {
         this.memoryLimitBytes = memoryLimitBytes;
-    }
-
-    public String getK8sApiUrl() {
-        return k8sApiUrl;
-    }
-
-    public void setK8sApiUrl(String k8sApiUrl) {
-        this.k8sApiUrl = k8sApiUrl;
     }
 
     public int getPodStatusScrapeIntervalSeconds() {

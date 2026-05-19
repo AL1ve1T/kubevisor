@@ -204,6 +204,7 @@ public class GraphStateManager {
                             n.getId(), n.getName(), n.getType(),
                             n.getCpuUtilization(), n.getMemoryUtilization(),
                             n.getPodPhase(), n.getRestartCount(),
+                            n.getLastRestartAt(), n.getLastRestartReason(),
                             n.getLastSeenAt()))
                     .toList();
 
@@ -262,15 +263,19 @@ public class GraphStateManager {
         dirty.set(true);
     }
 
-    public void updateNodePodStatus(String workloadName, String namespace, PodPhase phase, int restartCount) {
+    public void updateNodePodStatus(String workloadName, String namespace, PodPhase phase, int restartCount,
+            java.time.Instant lastRestartAt, String lastRestartReason) {
         Node node = nodes.computeIfAbsent(workloadName,
                 id -> {
                     dirty.set(true);
                     return new Node(id, id, NodeType.SERVICE, namespace);
                 });
-        if (node.getPodPhase() != phase || node.getRestartCount() != restartCount) {
+        if (node.getPodPhase() != phase || node.getRestartCount() != restartCount
+                || !java.util.Objects.equals(node.getLastRestartAt(), lastRestartAt)) {
             node.setPodPhase(phase);
             node.setRestartCount(restartCount);
+            node.setLastRestartAt(lastRestartAt);
+            node.setLastRestartReason(lastRestartReason);
             dirty.set(true);
         }
     }

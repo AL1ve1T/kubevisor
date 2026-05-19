@@ -7,6 +7,7 @@ import com.kubeflow.model.PodPhase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -117,6 +118,44 @@ class PodStatusScraperTest {
     }
 
     // -------------------------------------------------------------------------
+    // extractLastRestartAt / extractLastRestartReason
+    // -------------------------------------------------------------------------
+
+    @Test
+    void extractLastRestartAt_returnsNullWhenNoLastState() {
+        Map<String, Object> status = Map.of(
+                "containerStatuses", java.util.List.of(
+                        Map.of("restartCount", 0, "state", Map.of(), "lastState", Map.of())));
+        assertNull(scraper.extractLastRestartAt(status));
+    }
+
+    @Test
+    void extractLastRestartAt_returnsTimestampFromLastStateTerminated() {
+        Map<String, Object> status = Map.of(
+                "containerStatuses", java.util.List.of(
+                        Map.of("restartCount", 3, "state", Map.of(),
+                                "lastState", Map.of("terminated",
+                                        Map.of("finishedAt", "2026-05-19T20:04:25Z", "reason", "Error")))));
+        Instant result = scraper.extractLastRestartAt(status);
+        assertNotNull(result);
+        assertEquals(Instant.parse("2026-05-19T20:04:25Z"), result);
+    }
+
+    @Test
+    void extractLastRestartReason_returnsReasonFromMostRecentTermination() {
+        Map<String, Object> status = Map.of(
+                "containerStatuses", java.util.List.of(
+                        Map.of("restartCount", 2, "state", Map.of(),
+                                "lastState", Map.of("terminated",
+                                        Map.of("finishedAt", "2026-05-19T18:00:00Z", "reason", "OOMKilled"))),
+                        Map.of("restartCount", 1, "state", Map.of(),
+                                "lastState", Map.of("terminated",
+                                        Map.of("finishedAt", "2026-05-19T20:04:25Z", "reason", "Error")))));
+        // The second container has the more recent timestamp — its reason should win.
+        assertEquals("Error", scraper.extractLastRestartReason(status));
+    }
+
+    // -------------------------------------------------------------------------
     // processPodList — integration through the full parse → GraphStateManager path
     // -------------------------------------------------------------------------
 
@@ -210,5 +249,35 @@ class PodStatusScraperTest {
         assertNotNull(node);
         assertEquals(PodPhase.CRASH_LOOP, node.getPodPhase(), "worst-case phase should win");
         assertEquals(4, node.getRestartCount());
+    }
+
+    @Test
+    void processPodList_setsLastRestartAtAndReason() throws Exception {
+        String podListJson = """
+                {
+                  "items": [
+                    {
+                      "metadata": { "name": "order-service-abc12-xyz99", "labels": { "app": "order-service" } },
+                      "status": {
+                        "phase": "Running",
+                        "conditions": [{ "type": "Ready", "status": "False" }],
+                        "containerStatuses": [{
+                          "ready": false,
+                          "restartCount": 5,
+                          "state": { "waiting": { "reason": "CrashLoopBackOff" } },
+                          "lastState": { "terminated": { "finishedAt": "2026-05-19T20:04:25Z", "reason": "OOMKilled" } }
+                        }]
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        scraper.processPodList("default", podListJson);
+
+        Node node = manager.getNodes().get("order-service");
+        assertNotNull(node);
+        assertEquals(Instant.parse("2026-05-19T20:04:25Z"), node.getLastRestartAt());
+        assertEquals("OOMKilled", node.getLastRestartReason());
     }
 }

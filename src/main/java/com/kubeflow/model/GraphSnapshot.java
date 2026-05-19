@@ -1,6 +1,7 @@
 package com.kubeflow.model;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import org.springframework.lang.Nullable;
 
 import java.time.Instant;
 import java.util.List;
@@ -25,6 +26,8 @@ public record GraphSnapshot(
             @Schema(description = "Memory utilization in [0.0, 1.0] as reported by the kubeletstats receiver. 0.0 means no data received yet.", example = "0.67") double memoryUtilization,
             @Schema(description = "Operational health state of the Kubernetes pod(s) backing this node, scraped from the Kubernetes API. UNKNOWN means no data received yet (synthetic nodes or scraper not running).") PodPhase podPhase,
             @Schema(description = "Total container restart count across all pod replicas for this workload. Increases monotonically; a jump here indicates a crash or OOM kill.", example = "3") int restartCount,
+            @Schema(description = "Timestamp of the most recent container termination (i.e. when the last restart was triggered). Null if the workload has never restarted.") @Nullable Instant lastRestartAt,
+            @Schema(description = "Reason for the most recent termination as reported by Kubernetes, e.g. OOMKilled, Error, Completed. Null if the workload has never restarted.", example = "OOMKilled") @Nullable String lastRestartReason,
             @Schema(description = "Last time a span or network-flow event was observed involving this node.") Instant lastSeenAt) {
     }
 

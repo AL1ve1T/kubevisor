@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -60,9 +61,11 @@ public class PodStatusScraper {
 
     private final GraphStateManager graphStateManager;
     private final ObjectMapper objectMapper;
+    // Non-null only in in-cluster mode.
     private final HttpClient httpClient;
     private final String apiBaseUrl;
     private final String bearerToken;
+    private final boolean inCluster;
 
     // Failure tracking: log warn on first failure, then every 10 after that.
     private volatile int consecutiveFailures = 0;
@@ -73,20 +76,19 @@ public class PodStatusScraper {
         this.graphStateManager = graphStateManager;
         this.objectMapper = objectMapper;
 
-        boolean inCluster = System.getenv("KUBERNETES_SERVICE_HOST") != null;
+        this.inCluster = System.getenv("KUBERNETES_SERVICE_HOST") != null;
         if (inCluster) {
             this.apiBaseUrl = IN_CLUSTER_API;
             this.bearerToken = readSaToken();
             this.httpClient = buildInsecureHttpClient();
             log.info("PodStatusScraper: in-cluster mode, api={}", apiBaseUrl);
         } else {
-            String configured = properties.getK8sApiUrl();
-            this.apiBaseUrl = configured.isBlank() ? "http://localhost:8001" : configured;
+            // Local dev: use kubectl subprocess — inherits the active kubeconfig context
+            // and works with any auth method (mTLS, token, exec), no kubectl proxy needed.
+            this.apiBaseUrl = null;
             this.bearerToken = null;
-            this.httpClient = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofSeconds(3))
-                    .build();
-            log.info("PodStatusScraper: local dev mode, api={} (run 'kubectl proxy' to enable)", apiBaseUrl);
+            this.httpClient = null;
+            log.info("PodStatusScraper: local dev mode — will use 'kubectl get pods' subprocess");
         }
     }
 
@@ -120,26 +122,54 @@ public class PodStatusScraper {
     }
 
     private void scrapeNamespace(String namespace) throws Exception {
-        String url = apiBaseUrl + "/api/v1/namespaces/" + namespace + "/pods";
+        String json;
+        if (inCluster) {
+            json = scrapeViaHttp(namespace);
+        } else {
+            json = scrapeViaKubectl(namespace);
+        }
+        processPodList(namespace, json);
+    }
 
+    private String scrapeViaHttp(String namespace) throws Exception {
+        String url = apiBaseUrl + "/api/v1/namespaces/" + namespace + "/pods";
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(10))
                 .GET();
-
         if (bearerToken != null) {
             builder.header("Authorization", "Bearer " + bearerToken);
         }
-
         HttpResponse<String> response = httpClient.send(builder.build(),
                 HttpResponse.BodyHandlers.ofString());
-
         if (response.statusCode() != 200) {
             throw new IllegalStateException(
                     "k8s API returned " + response.statusCode() + " for namespace=" + namespace);
         }
+        return response.body();
+    }
 
-        processPodList(namespace, response.body());
+    private String scrapeViaKubectl(String namespace) throws Exception {
+        Process process = new ProcessBuilder(
+                "kubectl", "get", "pods",
+                "-n", namespace,
+                "-o", "json")
+                .redirectErrorStream(false)
+                .start();
+
+        String stdout = new String(process.getInputStream().readAllBytes());
+        String stderr = new String(process.getErrorStream().readAllBytes());
+
+        boolean finished = process.waitFor(15, java.util.concurrent.TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            throw new IllegalStateException("kubectl get pods timed out for namespace=" + namespace);
+        }
+        if (process.exitValue() != 0) {
+            throw new IllegalStateException(
+                    "kubectl get pods failed (exit=" + process.exitValue() + "): " + stderr.strip());
+        }
+        return stdout;
     }
 
     // Package-private for testing.
@@ -165,14 +195,18 @@ public class PodStatusScraper {
             Map<String, Object> podStatus = getMap(pod, "status");
             PodPhase phase = classifyPod(podStatus);
             int restarts = sumRestarts(podStatus);
-            status.merge(phase, restarts);
+            Instant lastRestartAt = extractLastRestartAt(podStatus);
+            String lastRestartReason = extractLastRestartReason(podStatus);
+            status.merge(phase, restarts, lastRestartAt, lastRestartReason);
         }
 
         for (Map.Entry<String, WorkloadStatus> entry : byWorkload.entrySet()) {
             graphStateManager.updateNodePodStatus(
                     entry.getKey(), namespace,
                     entry.getValue().phase,
-                    entry.getValue().restartCount);
+                    entry.getValue().restartCount,
+                    entry.getValue().lastRestartAt,
+                    entry.getValue().lastRestartReason);
         }
 
         log.debug("PodStatusScraper: scraped {} workload(s) in namespace={}", byWorkload.size(), namespace);
@@ -250,6 +284,55 @@ public class PodStatusScraper {
             }
         }
         return total;
+    }
+
+    /**
+     * Returns the most-recent {@code lastState.terminated.finishedAt} timestamp
+     * across all containers in the pod, or {@code null} if no container has ever
+     * been terminated.
+     */
+    // Package-private for testing.
+    Instant extractLastRestartAt(Map<String, Object> status) {
+        Instant latest = null;
+        for (Map<String, Object> cs : getList(status, "containerStatuses")) {
+            String finishedAt = getString(getMap(getMap(cs, "lastState"), "terminated"), "finishedAt");
+            if (finishedAt != null) {
+                try {
+                    Instant ts = Instant.parse(finishedAt);
+                    if (latest == null || ts.isAfter(latest)) {
+                        latest = ts;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return latest;
+    }
+
+    /**
+     * Returns the termination reason (e.g. {@code OOMKilled}, {@code Error}) from
+     * the most-recent {@code lastState.terminated} block across all containers,
+     * or {@code null} if no container has been terminated.
+     */
+    // Package-private for testing.
+    String extractLastRestartReason(Map<String, Object> status) {
+        Instant latest = null;
+        String reason = null;
+        for (Map<String, Object> cs : getList(status, "containerStatuses")) {
+            Map<String, Object> terminated = getMap(getMap(cs, "lastState"), "terminated");
+            String finishedAt = getString(terminated, "finishedAt");
+            if (finishedAt != null) {
+                try {
+                    Instant ts = Instant.parse(finishedAt);
+                    if (latest == null || ts.isAfter(latest)) {
+                        latest = ts;
+                        reason = getString(terminated, "reason");
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return reason;
     }
 
     // -------------------------------------------------------------------------
@@ -336,12 +419,19 @@ public class PodStatusScraper {
     static final class WorkloadStatus {
         PodPhase phase = PodPhase.UNKNOWN;
         int restartCount = 0;
+        Instant lastRestartAt = null;
+        String lastRestartReason = null;
 
-        void merge(PodPhase newPhase, int newRestarts) {
+        void merge(PodPhase newPhase, int newRestarts, Instant newLastRestartAt, String newLastRestartReason) {
             if (newPhase.isWorseThan(this.phase)) {
                 this.phase = newPhase;
             }
             this.restartCount = Math.max(this.restartCount, newRestarts);
+            if (newLastRestartAt != null
+                    && (this.lastRestartAt == null || newLastRestartAt.isAfter(this.lastRestartAt))) {
+                this.lastRestartAt = newLastRestartAt;
+                this.lastRestartReason = newLastRestartReason;
+            }
         }
     }
 }
