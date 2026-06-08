@@ -1,4 +1,4 @@
-import type { GraphSnapshot } from "../models";
+import type { GraphSnapshot, RestartEventDto } from "../models";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
 
@@ -58,4 +58,32 @@ export function extractGraphSnapshots(payload: unknown): GraphSnapshot[] {
     }
 
     return [];
+}
+
+export async function fetchHistory(options?: {
+    from?: string;
+    to?: string;
+    namespace?: string;
+}): Promise<GraphSnapshot[]> {
+    const url = new URL(buildApiUrl("/api/graph/history"));
+    if (options?.from) url.searchParams.set("from", options.from);
+    if (options?.to) url.searchParams.set("to", options.to);
+    if (options?.namespace) url.searchParams.set("namespace", options.namespace);
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(`Failed to fetch history: ${res.status}`);
+    const raw: unknown = await res.json();
+    return Array.isArray(raw) ? (raw as GraphSnapshot[]) : [];
+}
+
+export async function fetchRestartTimeline(
+    nodeId: string,
+    options?: { from?: string; to?: string; namespace?: string },
+): Promise<RestartEventDto[]> {
+    const url = new URL(buildApiUrl(`/api/nodes/${encodeURIComponent(nodeId)}/restarts`));
+    if (options?.from) url.searchParams.set("from", options.from);
+    if (options?.to) url.searchParams.set("to", options.to);
+    if (options?.namespace) url.searchParams.set("namespace", options.namespace);
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(`Failed to fetch restart timeline: ${res.status}`);
+    return res.json() as Promise<RestartEventDto[]>;
 }

@@ -17,5 +17,7 @@ export interface NodeDto {
     memoryUtilization: number;
     podPhase: PodPhase;
     restartCount: number;
+    lastRestartAt: string | null;
+    lastRestartReason: string | null;
     lastSeenAt: string;
 }

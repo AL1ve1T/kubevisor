@@ -13,6 +13,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0,
             podPhase: "UNKNOWN",
             restartCount: 0,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
         {
@@ -23,6 +25,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0,
             podPhase: "UNKNOWN",
             restartCount: 0,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
         {
@@ -33,6 +37,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0.32,
             podPhase: "RUNNING",
             restartCount: 0,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
         {
@@ -43,6 +49,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0.55,
             podPhase: "RUNNING",
             restartCount: 1,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
         {
@@ -53,6 +61,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0.72,
             podPhase: "CRASH_LOOP",
             restartCount: 7,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
         {
@@ -63,6 +73,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0.48,
             podPhase: "RUNNING",
             restartCount: 0,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
         {
@@ -73,6 +85,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0.21,
             podPhase: "RUNNING",
             restartCount: 0,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
         {
@@ -83,6 +97,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0.63,
             podPhase: "NOT_READY",
             restartCount: 3,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
         // ── 5 extra col-1 nodes ───────────────────────────────────────────────
@@ -94,6 +110,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0.41,
             podPhase: "RUNNING",
             restartCount: 0,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
         {
@@ -104,6 +122,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0.35,
             podPhase: "RUNNING",
             restartCount: 0,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
         {
@@ -114,6 +134,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0.58,
             podPhase: "RUNNING",
             restartCount: 2,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
         {
@@ -124,6 +146,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0.39,
             podPhase: "PENDING",
             restartCount: 0,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
         {
@@ -134,6 +158,8 @@ export const mockSnapshot: GraphSnapshot = {
             memoryUtilization: 0.28,
             podPhase: "RUNNING",
             restartCount: 0,
+            lastRestartAt: null,
+            lastRestartReason: null,
             lastSeenAt: new Date().toISOString(),
         },
     ],

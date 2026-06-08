@@ -14,6 +14,7 @@ export function App() {
     const [clockNow, setClockNow] = useState(() => Date.now());
     const [selectedNamespace, setSelectedNamespace] = useState<string | null>(null);
     const [strategyId, setStrategyId] = useState(DEFAULT_STRATEGY_ID);
+    const [showInactiveEdges, setShowInactiveEdges] = useState(true);
 
     useEffect(() => {
         const timer = window.setInterval(() => setClockNow(Date.now()), 30_000);
@@ -62,12 +63,14 @@ export function App() {
                 onNamespaceChange={setSelectedNamespace}
                 status={status}
                 lastRefreshText={lastRefreshText}
+                showInactiveEdges={showInactiveEdges}
+                onToggleInactiveEdges={() => setShowInactiveEdges((v) => !v)}
             />
 
             {/* Canvas area offset by sidebar width */}
             <div style={{ flex: 1, position: "relative", marginLeft: 220 }}>
                 {activeSnapshot ? (
-                    <TopologyCanvas snapshot={activeSnapshot} strategyId={strategyId} />
+                    <TopologyCanvas snapshot={activeSnapshot} strategyId={strategyId} showInactiveEdges={showInactiveEdges} />
                 ) : (
                     <div
                         style={{

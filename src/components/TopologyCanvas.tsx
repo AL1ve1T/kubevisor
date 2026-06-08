@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphSnapshot } from "../models";
 import type { EdgeDto } from "../models";
 import type { NodeDto } from "../models";
@@ -6,7 +6,7 @@ import { GraphNode } from "./GraphNode";
 import { GraphEdge } from "./GraphEdge";
 import { GraphCorridor } from "./GraphCorridor";
 import { EdgePopover } from "./EdgePopover";
-import { NodePopover } from "./NodePopover";
+import { NodeDetailModal } from "./NodeDetailModal";
 import { useHoverState } from "../hooks/useHoverState";
 import { useZoomPan } from "../hooks/useZoomPan";
 import { useEdgePicking } from "../hooks/useEdgePicking";
@@ -17,12 +17,16 @@ import { BAR_WIDTH, buildNodeGeometries, NODE_HEIGHT, NODE_WIDTH, type NodeGeome
 interface TopologyCanvasProps {
     snapshot: GraphSnapshot;
     strategyId: string;
+    showInactiveEdges?: boolean;
 }
 
 const CANVAS_W = 1000;
 const CANVAS_H = 600;
 const PAD_X = 120;
 const PAD_Y = 80;
+
+/** Edges not seen within this window are treated as inactive (rps=0). */
+const STALE_EDGE_MS = 2 * 60 * 1000;
 
 /**
  * Assign each node to a column based on longest-path from sources.
@@ -109,11 +113,33 @@ function computeLayout(
     return { positions, colSpacing, columns };
 }
 
-export function TopologyCanvas({ snapshot, strategyId }: TopologyCanvasProps) {
-    const nodeCols = useMemo(() => assignColumns(snapshot.nodes, snapshot.edges), [snapshot.nodes, snapshot.edges]);
+export function TopologyCanvas({ snapshot, strategyId, showInactiveEdges = true }: TopologyCanvasProps) {
+    const [clockNow, setClockNow] = useState(() => Date.now());
+    useEffect(() => {
+        const timer = window.setInterval(() => setClockNow(Date.now()), 30_000);
+        return () => window.clearInterval(timer);
+    }, []);
+
+    /**
+     * Zero out metrics for edges whose lastSeenAt is older than STALE_EDGE_MS.
+     * This ensures stale backend snapshots don't keep showing load that ended minutes ago.
+     */
+    const normalizedEdges = useMemo(
+        () =>
+            snapshot.edges.map((e) => {
+                const age = clockNow - new Date(e.lastSeenAt).getTime();
+                if (age > STALE_EDGE_MS) {
+                    return { ...e, requestsPerSecond: 0, loadLevel: "NORMAL" as const };
+                }
+                return e;
+            }),
+        [snapshot.edges, clockNow],
+    );
+
+    const nodeCols = useMemo(() => assignColumns(snapshot.nodes, normalizedEdges), [snapshot.nodes, normalizedEdges]);
     const nodeGeometries = useMemo(
-        () => buildNodeGeometries(snapshot.nodes, snapshot.edges, nodeCols),
-        [snapshot.nodes, snapshot.edges, nodeCols],
+        () => buildNodeGeometries(snapshot.nodes, normalizedEdges, nodeCols),
+        [snapshot.nodes, normalizedEdges, nodeCols],
     );
     const { positions, colSpacing, columns } = useMemo(
         () => computeLayout(snapshot.nodes, nodeCols, nodeGeometries),
@@ -139,8 +165,8 @@ export function TopologyCanvas({ snapshot, strategyId }: TopologyCanvasProps) {
     );
 
     const { edgeItems: edgeRenderItems, corridorItems } = useMemo(
-        () => activeStrategy.build(snapshot.nodes, snapshot.edges, adjustedPositions, nodeMap, nodeCols, colSpacing, nodeGeometries),
-        [snapshot.nodes, snapshot.edges, adjustedPositions, nodeMap, nodeCols, colSpacing, nodeGeometries, activeStrategy],
+        () => activeStrategy.build(snapshot.nodes, normalizedEdges, adjustedPositions, nodeMap, nodeCols, colSpacing, nodeGeometries),
+        [snapshot.nodes, normalizedEdges, adjustedPositions, nodeMap, nodeCols, colSpacing, nodeGeometries, activeStrategy],
     );
 
     /**
@@ -155,7 +181,7 @@ export function TopologyCanvas({ snapshot, strategyId }: TopologyCanvasProps) {
         const hasRightOut = new Set<string>();
         const hasRightIn = new Set<string>(); // same-col or backward edges → right IN hub
         const hasLeftIn = new Set<string>();  // forward edges → left IN indicator
-        for (const e of snapshot.edges) {
+        for (const e of normalizedEdges) {
             hasRightOut.add(e.sourceNodeId);
             const srcCol = nodeCols[e.sourceNodeId] ?? 0;
             const tgtCol = nodeCols[e.targetNodeId] ?? 0;
@@ -166,7 +192,7 @@ export function TopologyCanvas({ snapshot, strategyId }: TopologyCanvasProps) {
             }
         }
         return { hasRightOut, hasRightIn, hasLeftIn };
-    }, [snapshot.edges, nodeCols, activeStrategy]);
+    }, [normalizedEdges, nodeCols, activeStrategy]);
 
     // Compute bounding box around all nodes, expanded by 70% of viewport in each direction
     const bounds = useMemo(() => {
@@ -211,9 +237,14 @@ export function TopologyCanvas({ snapshot, strategyId }: TopologyCanvasProps) {
         isFocusMode,
         toggleSelectedNode,
         clearSelection,
-    } = useHoverState(snapshot.nodes, snapshot.edges);
+    } = useHoverState(snapshot.nodes, normalizedEdges);
 
-    const { pickAt } = useEdgePicking(edgeRenderItems, corridorItems);
+    const visibleEdgeItems = useMemo(
+        () => edgeRenderItems.filter((item) => showInactiveEdges || item.rps > 0),
+        [edgeRenderItems, showInactiveEdges],
+    );
+
+    const { pickAt } = useEdgePicking(visibleEdgeItems, corridorItems);
 
     const [selectedEdge, setSelectedEdge] = useState<{
         edge: EdgeDto;
@@ -221,17 +252,13 @@ export function TopologyCanvas({ snapshot, strategyId }: TopologyCanvasProps) {
         y: number;
     } | null>(null);
 
-    const [selectedNodePopover, setSelectedNodePopover] = useState<{
-        nodeId: string;
-        x: number;
-        y: number;
-    } | null>(null);
+    const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
 
-    const handleNodeClick = (nodeId: string, e: React.MouseEvent) => {
+    const handleNodeClick = (nodeId: string, _e: React.MouseEvent) => {
         const isDeselecting = selectedNodeId === nodeId;
         toggleSelectedNode(nodeId);
         setSelectedEdge(null);
-        setSelectedNodePopover(isDeselecting ? null : { nodeId, x: e.clientX, y: e.clientY });
+        setDetailNodeId(isDeselecting ? null : nodeId);
     };
 
     const getWorldPoint = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -254,7 +281,7 @@ export function TopologyCanvas({ snapshot, strategyId }: TopologyCanvasProps) {
         // Clicking the canvas background clears both popovers and node selection
         clearSelection();
         setSelectedEdge(null);
-        setSelectedNodePopover(null);
+        setDetailNodeId(null);
 
         if (hoveredNodeId) return;
 
@@ -370,7 +397,7 @@ export function TopologyCanvas({ snapshot, strategyId }: TopologyCanvasProps) {
                     })}
 
                     {/* Edge stubs and branches render above corridors, below nodes */}
-                    {edgeRenderItems.map((item) => {
+                    {visibleEdgeItems.map((item) => {
                         const isHighlighted = item.edgeIds.some((id) => highlightedEdges.has(id));
                         return (
                             <GraphEdge
@@ -451,20 +478,19 @@ export function TopologyCanvas({ snapshot, strategyId }: TopologyCanvasProps) {
                 />
             )}
 
-            {selectedNodePopover && (() => {
-                const popNode = nodeMap.get(selectedNodePopover.nodeId);
-                if (!popNode) return null;
-                const outgoing = snapshot.edges.filter((e) => e.sourceNodeId === selectedNodePopover.nodeId);
-                const incoming = snapshot.edges.filter((e) => e.targetNodeId === selectedNodePopover.nodeId);
+            {detailNodeId && (() => {
+                const detailNode = nodeMap.get(detailNodeId);
+                if (!detailNode) return null;
+                const outgoing = normalizedEdges.filter((e) => e.sourceNodeId === detailNodeId);
+                const incoming = normalizedEdges.filter((e) => e.targetNodeId === detailNodeId);
                 return (
-                    <NodePopover
-                        node={popNode}
+                    <NodeDetailModal
+                        node={detailNode}
                         outgoingEdges={outgoing}
                         incomingEdges={incoming}
                         nodeMap={nodeMap}
-                        x={selectedNodePopover.x}
-                        y={selectedNodePopover.y}
-                        onClose={() => { clearSelection(); setSelectedNodePopover(null); }}
+                        namespace={snapshot.namespace}
+                        onClose={() => { clearSelection(); setDetailNodeId(null); }}
                     />
                 );
             })()}

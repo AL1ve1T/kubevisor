@@ -12,6 +12,9 @@ interface ControlPanelProps {
     /** Connection status */
     status: string;
     lastRefreshText: string;
+    /** Edge visibility */
+    showInactiveEdges: boolean;
+    onToggleInactiveEdges: () => void;
 }
 
 const sectionLabel: React.CSSProperties = {
@@ -37,6 +40,8 @@ export function ControlPanel({
     onNamespaceChange,
     status,
     lastRefreshText,
+    showInactiveEdges,
+    onToggleInactiveEdges,
 }: ControlPanelProps) {
     const statusColor = status === "live" ? "#22c55e" : status === "error" ? "#ef4444" : "#f59e0b";
 
@@ -169,6 +174,52 @@ export function ControlPanel({
                 </div>
 
                 <div style={divider} />
+
+                {/* Inactive edge toggle */}
+                <button
+                    onClick={onToggleInactiveEdges}
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        width: "100%",
+                        padding: "7px 10px",
+                        background: "transparent",
+                        border: "1px solid #374151",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        marginBottom: 8,
+                    }}
+                >
+                    <span style={{ fontSize: 12, color: "#9ca3af", fontFamily: "Inter, system-ui, sans-serif" }}>
+                        Inactive edges
+                    </span>
+                    {/* Toggle pill */}
+                    <span
+                        style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            width: 32,
+                            height: 18,
+                            borderRadius: 9,
+                            background: showInactiveEdges ? "#3b82f6" : "#374151",
+                            transition: "background 0.2s",
+                            padding: "0 2px",
+                            flexShrink: 0,
+                        }}
+                    >
+                        <span
+                            style={{
+                                width: 14,
+                                height: 14,
+                                borderRadius: "50%",
+                                background: "#f9fafb",
+                                transform: showInactiveEdges ? "translateX(14px)" : "translateX(0)",
+                                transition: "transform 0.2s",
+                            }}
+                        />
+                    </span>
+                </button>
 
                 {/* Visual encoding legend */}
                 <div style={sectionLabel}>Edge Legend</div>

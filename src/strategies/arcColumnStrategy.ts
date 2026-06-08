@@ -6,6 +6,11 @@ import type { Position, NodeGeometry } from "../helpers/nodeGeometry";
 import { NODE_WIDTH, BAR_WIDTH, getNodeCenterY } from "../helpers/nodeGeometry";
 import type { TopologyStrategy } from "./topologyStrategy";
 
+/** Extra bowl-X offset applied to each direction of a same-column bidirectional pair.
+ *  One edge bows BIDIR_BOWL_OFFSET px further right, the other the same amount closer,
+ *  so the two otherwise-identical cubic beziers become visually and pickably distinct. */
+const BIDIR_BOWL_OFFSET = 20;
+
 function r(v: number): string {
     return String(Math.round(v * 10) / 10);
 }
@@ -118,6 +123,33 @@ export const arcColumnStrategy: TopologyStrategy = {
 
         const edgeItems: EdgeRenderItem[] = [];
 
+        // Detect same-column bidirectional pairs.  Two edges that connect the same pair
+        // of nodes in the same column but in opposite directions produce an identical cubic
+        // bezier (just reversed), making both unclickable.  Pre-compute a ±bowl-offset for
+        // each such edge so the rendered curves separate visually.
+        const biDirBowlOffsetMap = new Map<string, number>(); // edgeId → ±BIDIR_BOWL_OFFSET
+        {
+            const sameColEdgeKey = new Map<string, string>(); // `${src}|${tgt}` → edgeId
+            for (const edge of edges) {
+                const srcCol = nodeCols[edge.sourceNodeId] ?? 0;
+                const tgtCol = nodeCols[edge.targetNodeId] ?? 0;
+                if (srcCol === tgtCol) {
+                    sameColEdgeKey.set(`${edge.sourceNodeId}|${edge.targetNodeId}`, edge.id);
+                }
+            }
+            for (const [key, edgeId] of sameColEdgeKey) {
+                const [src, tgt] = key.split("|");
+                const reverseId = sameColEdgeKey.get(`${tgt}|${src}`);
+                if (reverseId !== undefined && !biDirBowlOffsetMap.has(edgeId)) {
+                    // Assign consistently so one always bows outward and the other inward.
+                    const outerEdgeId = edgeId < reverseId ? edgeId : reverseId;
+                    const innerEdgeId = edgeId < reverseId ? reverseId : edgeId;
+                    biDirBowlOffsetMap.set(outerEdgeId, +BIDIR_BOWL_OFFSET);
+                    biDirBowlOffsetMap.set(innerEdgeId, -BIDIR_BOWL_OFFSET);
+                }
+            }
+        }
+
         for (const edge of edges) {
             const srcNode = nodeMap.get(edge.sourceNodeId);
             const tgtNode = nodeMap.get(edge.targetNodeId);
@@ -154,9 +186,12 @@ export const arcColumnStrategy: TopologyStrategy = {
                 // ── Same-column edge: both nodes connect from their RIGHT side ──
                 // The arc bows middle nodes leftward, so the concave inner bowl is
                 // on the right. Control points sit 60 px beyond the rightmost right-edge.
+                // For bidirectional pairs the bowl is additionally offset ± BIDIR_BOWL_OFFSET
+                // so the two curves become visually distinct and individually pickable.
                 const sx = srcPos.x + srcHW;
                 const tx = tgtPos.x + tgtHW;
-                const bowlX = (colMaxRightEdgeX.get(srcCol) ?? Math.max(sx, tx)) + 60;
+                const baseBowlX = (colMaxRightEdgeX.get(srcCol) ?? Math.max(sx, tx)) + 60;
+                const bowlX = baseBowlX + (biDirBowlOffsetMap.get(edge.id) ?? 0);
                 path = cubicPath(sx, srcY, bowlX, srcY, bowlX, tgtY, tx, tgtY);
                 startPt = { x: sx, y: srcY };
                 endPt = { x: tx, y: tgtY };
