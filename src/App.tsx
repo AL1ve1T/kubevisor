@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { TopologyCanvas } from "./components/TopologyCanvas";
 import { ControlPanel } from "./components/ControlPanel";
+import { TimelineScrubber } from "./components/TimelineScrubber";
 import { useGraphSubscription } from "./hooks/useGraphSubscription";
+import { useHistoryRange } from "./hooks/useHistoryRange";
+import { useNamespaceRequestTimeline } from "./hooks/useNamespaceRequestTimeline";
 import { formatTimeAgo } from "./helpers/timeAgo";
+import type { NamespaceRequestTimelinePoint } from "./models";
 import { DEFAULT_STRATEGY_ID, TOPOLOGY_STRATEGIES } from "./strategies";
 import { mockSnapshot } from "./data/mockSnapshot";
 
@@ -15,6 +19,16 @@ export function App() {
     const [selectedNamespace, setSelectedNamespace] = useState<string | null>(null);
     const [strategyId, setStrategyId] = useState(DEFAULT_STRATEGY_ID);
     const [showInactiveEdges, setShowInactiveEdges] = useState(true);
+    const [scrubIndex, setScrubIndex] = useState<number | null>(null);
+
+    const { historySnapshots, loading: historyLoading, windowStartMs, windowEndMs, refresh: refreshHistory } = useHistoryRange(
+        USE_MOCK ? null : selectedNamespace,
+    );
+    const {
+        points: namespaceTimelinePoints,
+        loading: namespaceTimelineLoading,
+        error: namespaceTimelineError,
+    } = useNamespaceRequestTimeline(USE_MOCK ? null : selectedNamespace, windowStartMs, windowEndMs);
 
     useEffect(() => {
         const timer = window.setInterval(() => setClockNow(Date.now()), 30_000);
@@ -33,10 +47,48 @@ export function App() {
         }
     }, [namespaces, selectedNamespace]);
 
-    const activeSnapshot = useMemo(
-        () => snapshots.find((s) => s.namespace === selectedNamespace) ?? null,
-        [snapshots, selectedNamespace],
+    // Return to live mode when the namespace changes
+    useEffect(() => {
+        setScrubIndex(null);
+    }, [selectedNamespace]);
+
+    const activeSnapshot = useMemo(() => {
+        if (scrubIndex !== null) {
+            return historySnapshots[scrubIndex] ?? null;
+        }
+        return snapshots.find((s) => s.namespace === selectedNamespace) ?? null;
+    }, [scrubIndex, historySnapshots, snapshots, selectedNamespace]);
+
+    const fallbackTimelinePoints = useMemo<NamespaceRequestTimelinePoint[]>(
+        () =>
+            historySnapshots.map((snapshot) => ({
+                timestamp: snapshot.generatedAt,
+                totalRequests: snapshot.edges.reduce(
+                    (sum, edge) => sum + (edge.requestsPerSecond ?? 0),
+                    0,
+                ),
+                totalPods: snapshot.nodes.reduce(
+                    (count, node) => count + (node.pods?.length ?? 0),
+                    0,
+                ),
+                notReadyPods: snapshot.nodes.reduce(
+                    (count, node) =>
+                        count +
+                        (node.pods?.filter((pod) => pod.podPhase !== "RUNNING").length ?? 0),
+                    0,
+                ),
+            })),
+        [historySnapshots],
     );
+
+    const timelinePoints = namespaceTimelinePoints.length > 0
+        ? namespaceTimelinePoints
+        : fallbackTimelinePoints;
+
+    const timelineError =
+        namespaceTimelineError && timelinePoints.length === 0
+            ? namespaceTimelineError
+            : null;
 
     const lastRefreshText = useMemo(() => {
         if (!lastRefreshAt) return "never";
@@ -70,7 +122,11 @@ export function App() {
             {/* Canvas area offset by sidebar width */}
             <div style={{ flex: 1, position: "relative", marginLeft: 220 }}>
                 {activeSnapshot ? (
-                    <TopologyCanvas snapshot={activeSnapshot} strategyId={strategyId} showInactiveEdges={showInactiveEdges} />
+                    <TopologyCanvas
+                        snapshot={activeSnapshot}
+                        strategyId={strategyId}
+                        showInactiveEdges={showInactiveEdges}
+                    />
                 ) : (
                     <div
                         style={{
@@ -86,14 +142,25 @@ export function App() {
                         Waiting for graph snapshot...
                     </div>
                 )}
+                <TimelineScrubber
+                    historySnapshots={historySnapshots}
+                    timelinePoints={timelinePoints}
+                    selectedIndex={scrubIndex}
+                    onSelect={setScrubIndex}
+                    onRefresh={refreshHistory}
+                    loading={historyLoading || namespaceTimelineLoading}
+                    timelineError={timelineError}
+                    windowStartMs={windowStartMs}
+                    windowEndMs={windowEndMs}
+                />
             </div>
 
             {error && (
                 <div
                     style={{
                         position: "absolute",
-                        left: 232,
-                        bottom: 12,
+                        right: 16,
+                        top: 16,
                         zIndex: 20,
                         background: "rgba(254,242,242,0.95)",
                         border: "1px solid #fecaca",
