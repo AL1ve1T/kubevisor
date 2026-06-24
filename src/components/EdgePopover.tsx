@@ -75,10 +75,6 @@ export function EdgePopover({ edge, x, y, onClose }: EdgePopoverProps) {
                 <span style={valueStyle}>{edge.requestsPerSecond}</span>
             </div>
             <div style={rowStyle}>
-                <span style={labelStyle}>Total requests</span>
-                <span style={valueStyle}>{edge.requestCount.toLocaleString()}</span>
-            </div>
-            <div style={rowStyle}>
                 <span style={labelStyle}>Avg latency</span>
                 <span style={valueStyle}>{edge.averageLatencyMs} ms</span>
             </div>

@@ -16,6 +16,18 @@ export interface NodeHistoryData {
     error: string | null;
 }
 
+/** Races a promise against a ms-timeout so a hanging endpoint never blocks the UI. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return Promise.race([
+        promise,
+        new Promise<T>((_, reject) =>
+            window.setTimeout(() => reject(new Error("Request timed out")), ms),
+        ),
+    ]);
+}
+
+const REQUEST_TIMEOUT_MS = 8_000;
+
 export function useNodeHistory(nodeId: string, namespace: string): NodeHistoryData {
     const [state, setState] = useState<NodeHistoryData>({
         points: [],
@@ -28,36 +40,39 @@ export function useNodeHistory(nodeId: string, namespace: string): NodeHistoryDa
         let cancelled = false;
         setState({ points: [], restarts: [], loading: true, error: null });
 
-        Promise.all([
-            fetchHistory({ namespace }),
-            fetchRestartTimeline(nodeId, { namespace }),
-        ])
-            .then(([snapshots, restarts]) => {
-                if (cancelled) return;
+        // Use allSettled so a missing/hanging restarts endpoint never blocks
+        // the history charts from rendering.
+        Promise.allSettled([
+            withTimeout(fetchHistory({ namespace }), REQUEST_TIMEOUT_MS),
+            withTimeout(fetchRestartTimeline(nodeId, { namespace }), REQUEST_TIMEOUT_MS),
+        ]).then(([historyResult, restartsResult]) => {
+            if (cancelled) return;
 
-                const sorted = [...snapshots].sort(
-                    (a, b) => new Date(a.generatedAt).getTime() - new Date(b.generatedAt).getTime(),
+            const snapshots = historyResult.status === "fulfilled" ? historyResult.value : [];
+            const restarts = restartsResult.status === "fulfilled" ? restartsResult.value : [];
+
+            const sorted = [...snapshots].sort(
+                (a, b) => new Date(a.generatedAt).getTime() - new Date(b.generatedAt).getTime(),
+            );
+
+            const points: NodeHistoryPoint[] = sorted.map((snap) => {
+                const node = snap.nodes.find((n) => n.id === nodeId);
+                const edges = snap.edges.filter(
+                    (e) => e.sourceNodeId === nodeId || e.targetNodeId === nodeId,
                 );
-
-                const points: NodeHistoryPoint[] = sorted.map((snap) => {
-                    const node = snap.nodes.find((n) => n.id === nodeId);
-                    const edges = snap.edges.filter(
-                        (e) => e.sourceNodeId === nodeId || e.targetNodeId === nodeId,
-                    );
-                    return {
-                        timestamp: snap.generatedAt,
-                        cpuUtilization: node?.cpuUtilization ?? 0,
-                        memoryUtilization: node?.memoryUtilization ?? 0,
-                        totalRps: edges.reduce((sum, e) => sum + e.requestsPerSecond, 0),
-                    };
-                });
-
-                setState({ points, restarts, loading: false, error: null });
-            })
-            .catch((err: Error) => {
-                if (cancelled) return;
-                setState({ points: [], restarts: [], loading: false, error: err.message });
+                const pods = node?.pods ?? [];
+                const peakCpu = pods.reduce((max, p) => Math.max(max, p.cpuUtilization), 0);
+                const peakMem = pods.reduce((max, p) => Math.max(max, p.memoryUtilization), 0);
+                return {
+                    timestamp: snap.generatedAt,
+                    cpuUtilization: peakCpu,
+                    memoryUtilization: peakMem,
+                    totalRps: edges.reduce((sum, e) => sum + e.requestsPerSecond, 0),
+                };
             });
+
+            setState({ points, restarts, loading: false, error: null });
+        });
 
         return () => {
             cancelled = true;

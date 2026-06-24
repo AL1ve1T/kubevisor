@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { ReactNode } from "react";
-import type { EdgeDto, LoadLevel, NodeDto, PodPhase, RestartEventDto } from "../models";
+import type { EdgeDto, LoadLevel, NodeDto, PodDto, PodPhase, RestartEventDto } from "../models";
 import { NodeType } from "../models";
 import { useNodeHistory } from "../hooks/useNodeHistory";
 
@@ -42,14 +42,19 @@ const NODE_TYPE_LABEL: Record<NodeType, string> = {
 
 // ── Util bar ──────────────────────────────────────────────────────────────────
 
+// A utilization ratio of exactly 0.0 means "no fresh sample", not 0% load.
 function UtilBar({ value, color }: { value: number; color: string }) {
+    const hasSample = value > 0;
     const pct = Math.round(value * 100);
+    // Values may momentarily exceed 1.0 (pod over its limit): clamp the bar but
+    // keep showing the real number.
+    const barPct = Math.min(pct, 100);
     return (
         <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
             <div style={{ flex: 1, height: 6, background: "#e5e7eb", borderRadius: 4, overflow: "hidden" }}>
                 <div
                     style={{
-                        width: `${pct}%`,
+                        width: hasSample ? `${barPct}%` : "0%",
                         height: "100%",
                         background: color,
                         borderRadius: 4,
@@ -57,8 +62,16 @@ function UtilBar({ value, color }: { value: number; color: string }) {
                     }}
                 />
             </div>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#1f2937", minWidth: 34, textAlign: "right" }}>
-                {pct}%
+            <span
+                style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: hasSample ? "#1f2937" : "#9ca3af",
+                    minWidth: 34,
+                    textAlign: "right",
+                }}
+            >
+                {hasSample ? `${pct}%` : "—"}
             </span>
         </div>
     );
@@ -401,6 +414,166 @@ function EdgeRow({
     );
 }
 
+// ── Pod panel (expanded replica-set view) ─────────────────────────────────────
+
+function PodPhaseBadge({ phase }: { phase: PodPhase }) {
+    return (
+        <span
+            style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: "#ffffff",
+                background: POD_PHASE_COLOR[phase],
+                borderRadius: 4,
+                padding: "1px 6px",
+                letterSpacing: 0.4,
+                whiteSpace: "nowrap",
+            }}
+        >
+            {phase.replace("_", " ")}
+        </span>
+    );
+}
+
+function fmtRestartAt(iso: string): string {
+    const ms = new Date(iso).getTime();
+    if (Number.isNaN(ms)) return iso;
+    const d = new Date(ms);
+    const date = `${(d.getMonth() + 1).toString().padStart(2, "0")}/${d.getDate().toString().padStart(2, "0")}`;
+    const time = `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+    return `${date} ${time}`;
+}
+
+function PodRow({ pod }: { pod: PodDto }) {
+    return (
+        <div
+            style={{
+                background: "#ffffff",
+                border: "1px solid #f3f4f6",
+                borderRadius: 8,
+                padding: "8px 10px",
+                marginBottom: 6,
+            }}
+        >
+            {/* Pod header: name + phase + restarts */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span
+                    style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "#111827",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        flex: 1,
+                    }}
+                    title={pod.podName}
+                >
+                    {pod.podName}
+                </span>
+                <PodPhaseBadge phase={pod.podPhase} />
+                {pod.restartCount > 0 && (
+                    <span
+                        style={{
+                            fontSize: 11,
+                            color: pod.restartCount >= 5 ? "#ef4444" : "#f97316",
+                            fontWeight: 600,
+                            whiteSpace: "nowrap",
+                        }}
+                    >
+                        {pod.restartCount} restart{pod.restartCount !== 1 ? "s" : ""}
+                    </span>
+                )}
+            </div>
+
+            {/* CPU / memory bars — pods carry resource & health only, never traffic */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "2px 0" }}>
+                <span style={{ fontSize: 11, color: "#6b7280", minWidth: 48 }}>CPU</span>
+                <UtilBar value={pod.cpuUtilization} color={utilColor(pod.cpuUtilization)} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "2px 0" }}>
+                <span style={{ fontSize: 11, color: "#6b7280", minWidth: 48 }}>Memory</span>
+                <UtilBar value={pod.memoryUtilization} color={utilColor(pod.memoryUtilization)} />
+            </div>
+
+            {/* Last restart context */}
+            {(pod.lastRestartReason || pod.lastRestartAt) && (
+                <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>
+                    {pod.lastRestartReason && (
+                        <span style={{ color: reasonColor(pod.lastRestartReason), fontWeight: 600 }}>
+                            {pod.lastRestartReason}
+                        </span>
+                    )}
+                    {pod.lastRestartReason && pod.lastRestartAt && <span> · </span>}
+                    {pod.lastRestartAt && <span>{fmtRestartAt(pod.lastRestartAt)}</span>}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function PodPanel({ node }: { node: NodeDto }) {
+    // history snapshots may have pods === null/undefined: treat as empty.
+    const pods = node.pods ?? [];
+
+    // podCount === 0 and no pods ⇒ synthetic node / scraper not running: no panel.
+    if (node.podCount === 0 && pods.length === 0) {
+        return null;
+    }
+
+    // Don't rely on backend ordering; sort by podName. Copy so we never mutate.
+    const sorted = [...pods].sort((a, b) => a.podName.localeCompare(b.podName));
+
+    return (
+        <div style={{ marginBottom: 20 }}>
+            <div
+                style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: 8,
+                }}
+            >
+                <span
+                    style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "#6b7280",
+                        textTransform: "uppercase",
+                        letterSpacing: 1,
+                    }}
+                >
+                    Pods ({node.podCount})
+                </span>
+                {node.podCount > 1 && (
+                    <span
+                        style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: "#6366f1",
+                            background: "#eef2ff",
+                            borderRadius: 4,
+                            padding: "1px 6px",
+                            letterSpacing: 0.3,
+                        }}
+                    >
+                        MULTI-REPLICA
+                    </span>
+                )}
+            </div>
+            <div style={{ background: "#f9fafb", borderRadius: 8, padding: "10px 10px 4px" }}>
+                {sorted.length > 0 ? (
+                    sorted.map((pod) => <PodRow key={pod.podName} pod={pod} />)
+                ) : (
+                    <div style={{ fontSize: 12, color: "#9ca3af", padding: "6px 2px 10px" }}>
+                        No pod-level data available.
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 // ── Main modal ────────────────────────────────────────────────────────────────
 
 export function NodeDetailModal({
@@ -497,7 +670,7 @@ export function NodeDetailModal({
 
                 {/* Pod state */}
                 {showUtil && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
                         <span
                             style={{
                                 fontSize: 11,
@@ -511,6 +684,9 @@ export function NodeDetailModal({
                         >
                             {node.podPhase.replace("_", " ")}
                         </span>
+                        <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 600 }}>
+                            ×{node.podCount} {node.podCount === 1 ? "replica" : "replicas"}
+                        </span>
                         {node.restartCount > 0 && (
                             <span
                                 style={{
@@ -522,57 +698,23 @@ export function NodeDetailModal({
                                 {node.restartCount} restart{node.restartCount !== 1 ? "s" : ""}
                             </span>
                         )}
+                        {(node.lastRestartReason || node.lastRestartAt) && (
+                            <span style={{ fontSize: 11, color: "#9ca3af" }}>
+                                last:{" "}
+                                {node.lastRestartReason && (
+                                    <span style={{ color: reasonColor(node.lastRestartReason), fontWeight: 600 }}>
+                                        {node.lastRestartReason}
+                                    </span>
+                                )}
+                                {node.lastRestartReason && node.lastRestartAt && <span> · </span>}
+                                {node.lastRestartAt && <span>{fmtRestartAt(node.lastRestartAt)}</span>}
+                            </span>
+                        )}
                     </div>
                 )}
 
-                {/* Resource utilization bars */}
-                {showUtil && (
-                    <div
-                        style={{
-                            background: "#f9fafb",
-                            borderRadius: 8,
-                            padding: "10px 12px",
-                            marginBottom: 20,
-                        }}
-                    >
-                        <div
-                            style={{
-                                fontSize: 11,
-                                fontWeight: 700,
-                                color: "#6b7280",
-                                textTransform: "uppercase",
-                                letterSpacing: 1,
-                                marginBottom: 8,
-                            }}
-                        >
-                            Resource Utilization
-                        </div>
-                        <div
-                            style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                                gap: 16,
-                                padding: "3px 0",
-                            }}
-                        >
-                            <span style={{ fontSize: 12, color: "#6b7280" }}>CPU</span>
-                            <UtilBar value={node.cpuUtilization} color={utilColor(node.cpuUtilization)} />
-                        </div>
-                        <div
-                            style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                                gap: 16,
-                                padding: "3px 0",
-                            }}
-                        >
-                            <span style={{ fontSize: 12, color: "#6b7280" }}>Memory</span>
-                            <UtilBar value={node.memoryUtilization} color={utilColor(node.memoryUtilization)} />
-                        </div>
-                    </div>
-                )}
+                {/* Per-pod replica metrics (resource & health only — never traffic) */}
+                {showUtil && <PodPanel node={node} />}
 
                 {/* History charts */}
                 {loading ? (
@@ -608,7 +750,7 @@ export function NodeDetailModal({
                         </ChartSection>
 
                         {showUtil && (
-                            <ChartSection title="CPU & Memory Over Time">
+                            <ChartSection title="Peak Replica CPU & Memory">
                                 <LineChart
                                     timestamps={timestamps}
                                     series={utilSeries}

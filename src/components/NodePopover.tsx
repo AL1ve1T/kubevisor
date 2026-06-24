@@ -205,6 +205,9 @@ export function NodePopover({ node, outgoingEdges, incomingEdges, nodeMap, x, y,
                     >
                         {node.podPhase.replace("_", " ")}
                     </span>
+                    <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 600 }}>
+                        ×{node.podCount} {node.podCount === 1 ? "replica" : "replicas"}
+                    </span>
                     {node.restartCount > 0 && (
                         <span
                             style={{
@@ -219,7 +222,7 @@ export function NodePopover({ node, outgoingEdges, incomingEdges, nodeMap, x, y,
                 </div>
             )}
 
-            {/* Resource utilization */}
+            {/* Replicas – CPU/RAM lives per-pod, never on the node */}
             {showUtil && (
                 <div
                     style={{
@@ -230,16 +233,56 @@ export function NodePopover({ node, outgoingEdges, incomingEdges, nodeMap, x, y,
                     }}
                 >
                     <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
-                        Resource Utilization
+                        Replicas
                     </div>
-                    <div style={rowStyle}>
-                        <span style={labelStyle}>CPU</span>
-                        <UtilBar value={node.cpuUtilization} color={utilColor(node.cpuUtilization)} />
-                    </div>
-                    <div style={rowStyle}>
-                        <span style={labelStyle}>Memory</span>
-                        <UtilBar value={node.memoryUtilization} color={utilColor(node.memoryUtilization)} />
-                    </div>
+                    {(() => {
+                        const pods = [...(node.pods ?? [])].sort((a, b) => a.podName.localeCompare(b.podName));
+                        if (pods.length === 0) {
+                            return (
+                                <div style={{ fontSize: 12, color: "#9ca3af" }}>
+                                    No pod-level metrics observed yet
+                                </div>
+                            );
+                        }
+                        return pods.map((pod) => (
+                            <div key={pod.podName} style={{ marginBottom: 8 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                                    <span
+                                        style={{
+                                            fontSize: 11,
+                                            color: "#374151",
+                                            fontWeight: 600,
+                                            whiteSpace: "nowrap",
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis",
+                                            flex: 1,
+                                        }}
+                                        title={pod.podName}
+                                    >
+                                        {pod.podName}
+                                    </span>
+                                    <span
+                                        style={{
+                                            width: 8,
+                                            height: 8,
+                                            borderRadius: "50%",
+                                            background: POD_PHASE_COLOR[pod.podPhase],
+                                            flexShrink: 0,
+                                        }}
+                                        title={pod.podPhase.replace("_", " ")}
+                                    />
+                                </div>
+                                <div style={rowStyle}>
+                                    <span style={labelStyle}>CPU</span>
+                                    <UtilBar value={pod.cpuUtilization} color={utilColor(pod.cpuUtilization)} />
+                                </div>
+                                <div style={rowStyle}>
+                                    <span style={labelStyle}>Memory</span>
+                                    <UtilBar value={pod.memoryUtilization} color={utilColor(pod.memoryUtilization)} />
+                                </div>
+                            </div>
+                        ));
+                    })()}
                 </div>
             )}
 

@@ -10,6 +10,22 @@ export const PORT_GAP = 6;
 export const PORT_PADDING = 12;
 export const CANVAS_BAR_HEIGHT = 600;
 
+// Pod cards rendered inside a workload node ("smaller version" of the node).
+export const NODE_HEADER_H = 24;   // space for the workload name + replica count
+export const POD_CARD_H = 34;      // height of one inner pod mini-card
+export const POD_CARD_GAP = 5;     // vertical gap between pod cards
+export const POD_AREA_PAD = 8;     // padding around the pod stack
+
+/**
+ * Height needed for a workload node so its inner pod mini-cards fit without
+ * overlapping. Nodes with no pods keep the compact default height.
+ */
+export function getWorkloadNodeHeight(podN: number): number {
+    if (podN <= 0) return NODE_HEIGHT;
+    const stack = podN * POD_CARD_H + (podN - 1) * POD_CARD_GAP;
+    return NODE_HEADER_H + POD_AREA_PAD + stack + POD_AREA_PAD;
+}
+
 export interface Position {
     x: number;
     y: number;
@@ -70,7 +86,11 @@ export function buildNodeGeometries(
 
         geometries[node.id] = {
             width: NODE_WIDTH,
-            height: Math.max(getRequiredPortHeight(leftWidths), getRequiredPortHeight(rightWidths)),
+            height: Math.max(
+                getRequiredPortHeight(leftWidths),
+                getRequiredPortHeight(rightWidths),
+                getWorkloadNodeHeight(node.pods?.length ?? 0),
+            ),
         };
     }
 
