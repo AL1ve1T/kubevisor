@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubeflow-postgres-secret
+  namespace: kubeflow
+type: Opaque
+stringData:
+  POSTGRES_DB: kubeflow
+  POSTGRES_USER: kubeflow
+  POSTGRES_PASSWORD: kubeflow-secret
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kubeflow-postgres-pvc
+  namespace: kubeflow
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubeflow-postgres
+  namespace: kubeflow
+  labels:
+    app: kubeflow-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubeflow-postgres
+  template:
+    metadata:
+      labels:
+        app: kubeflow-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          envFrom:
+            - secretRef:
+                name: kubeflow-postgres-secret
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "kubeflow", "-d", "kubeflow"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "kubeflow", "-d", "kubeflow"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: kubeflow-postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubeflow-postgres
+  namespace: kubeflow
+  labels:
+    app: kubeflow-postgres
+spec:
+  type: ClusterIP
+  selector:
+    app: kubeflow-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres

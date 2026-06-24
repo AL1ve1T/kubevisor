@@ -15,7 +15,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: otel-collector
-  namespace: default
+  namespace: kubeflow
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -41,7 +41,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: otel-collector
-    namespace: default
+    namespace: kubeflow
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -51,7 +51,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-collector-config
-  namespace: default
+  namespace: kubeflow
 data:
   otel-collector-config.yaml: |
     extensions:
@@ -113,7 +113,11 @@ data:
       debug:
         verbosity: basic
       otlphttp/kubeflow_backend:
-        endpoint: "http://host.docker.internal:8080"
+        # Endpoint is injected from the KUBEFLOW_BACKEND_ENDPOINT env var so it
+        # can be overridden without editing this ConfigMap.
+        # Local dev (Minikube → host machine): http://host.docker.internal:8080
+        # In-cluster: http://kubeflow-backend.kubeflow.svc.cluster.local:8080
+        endpoint: "${env:KUBEFLOW_BACKEND_ENDPOINT}"
         encoding: json
         compression: none
         tls:
@@ -139,7 +143,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: otel-collector
-  namespace: default
+  namespace: kubeflow
 spec:
   replicas: 1
   selector:
@@ -163,6 +167,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            # Where to export telemetry.
+            # Override to http://kubeflow-backend.kubeflow.svc.cluster.local:8080
+            # when the backend is deployed inside the cluster.
+            - name: KUBEFLOW_BACKEND_ENDPOINT
+              value: "http://host.docker.internal:8080"
           ports:
             - containerPort: 4317
               name: otlp-grpc
@@ -194,3 +203,24 @@ spec:
         - name: config
           configMap:
             name: otel-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: kubeflow
+  labels:
+    app: otel-collector
+spec:
+  type: ClusterIP
+  selector:
+    app: otel-collector
+  ports:
+    - port: 4317
+      targetPort: 4317
+      protocol: TCP
+      name: otlp-grpc
+    - port: 4318
+      targetPort: 4318
+      protocol: TCP
+      name: otlp-http
