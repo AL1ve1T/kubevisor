@@ -3,7 +3,6 @@ package com.kubeflow.persistence;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kubeflow.model.GraphSnapshot;
-import com.kubeflow.support.KubeflowProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -24,14 +23,11 @@ public class SnapshotPersistenceService {
 
     private final GraphSnapshotRepository repository;
     private final ObjectMapper objectMapper;
-    private final KubeflowProperties properties;
 
     public SnapshotPersistenceService(GraphSnapshotRepository repository,
-            ObjectMapper objectMapper,
-            KubeflowProperties properties) {
+            ObjectMapper objectMapper) {
         this.repository = repository;
         this.objectMapper = objectMapper;
-        this.properties = properties;
     }
 
     public void save(GraphSnapshot snapshot) {

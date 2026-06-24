@@ -26,7 +26,10 @@ public class GraphSnapshotEntity {
     @Column(nullable = false)
     private String namespace;
 
-    @Column(columnDefinition = "CLOB", nullable = false)
+    // TEXT in PostgreSQL; H2 (PostgreSQL mode) also stores this as text/varchar.
+    // No @Lob — that would map to CLOB which conflicts with TEXT during schema
+    // validation.
+    @Column(columnDefinition = "TEXT", nullable = false)
     private String snapshotJson;
 
     protected GraphSnapshotEntity() {
