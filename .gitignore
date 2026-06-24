@@ -7,3 +7,6 @@ target/
 .DS_Store
 .vscode/
 .github/
+# H2 local database runtime files
+data/*.db
+data/*.trace.db
