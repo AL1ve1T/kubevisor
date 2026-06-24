@@ -6,12 +6,14 @@ import com.kubeflow.model.InteractionEvent;
 import com.kubeflow.model.LoadLevel;
 import com.kubeflow.model.Node;
 import com.kubeflow.model.NodeType;
+import com.kubeflow.model.PodInstance;
 import com.kubeflow.model.PodPhase;
 import com.kubeflow.support.KubeflowProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -202,10 +204,9 @@ public class GraphStateManager {
                     .filter(n -> n != null)
                     .map(n -> new GraphSnapshot.NodeDto(
                             n.getId(), n.getName(), n.getType(),
-                            n.getCpuUtilization(), n.getMemoryUtilization(),
-                            n.getPodPhase(), n.getRestartCount(),
+                            n.getPodPhase(), n.getRestartCount(), n.getPodCount(),
                             n.getLastRestartAt(), n.getLastRestartReason(),
-                            n.getLastSeenAt()))
+                            n.getLastSeenAt(), buildPodDtos(n, now)))
                     .toList();
 
             List<GraphSnapshot.EdgeDto> edgeDtos = nsEdges.stream()
@@ -213,9 +214,9 @@ public class GraphStateManager {
                         Node target = nodes.get(e.getTargetNodeId());
                         return new GraphSnapshot.EdgeDto(
                                 e.getId(), e.getSourceNodeId(), e.getTargetNodeId(),
-                                e.getProtocol(), e.getRequestCount(), e.getRequestsPerSecond(),
-                                e.getAverageLatencyMs(), e.getMaxLatencyMs(),
-                                e.getErrorCount(), e.getErrorRate(),
+                                e.getProtocol(), round2(e.getRequestsPerSecond(now)),
+                                round2(e.getAverageLatencyMs(now)), round2(e.getMaxLatencyMs(now)),
+                                e.getErrorCount(), round2(e.getErrorRate(now)),
                                 classifyLoad(target), e.getLastSeenAt());
                     })
                     .toList();
@@ -249,42 +250,119 @@ public class GraphStateManager {
         }
     }
 
-    public void updateNodeCpuUtilization(String nodeId, String namespace, double cpuUtil) {
-        nodes.computeIfAbsent(nodeId,
-                id -> new Node(id, id, NodeType.SERVICE, namespace))
-                .setCpuUtilization(cpuUtil);
+    public void updateNodeCpuUtilization(String nodeId, String namespace, String podName, double cpuUtil) {
+        Node node = nodes.computeIfAbsent(nodeId,
+                id -> new Node(id, id, NodeType.SERVICE, namespace));
+        node.pod(podName).setCpuUtilization(cpuUtil);
+        node.setCpuUtilization(maxPodCpu(node));
         dirty.set(true);
     }
 
-    public void updateNodeMemoryUtilization(String nodeId, String namespace, double memUtil) {
-        nodes.computeIfAbsent(nodeId,
-                id -> new Node(id, id, NodeType.SERVICE, namespace))
-                .setMemoryUtilization(memUtil);
+    public void updateNodeMemoryUtilization(String nodeId, String namespace, String podName, double memUtil) {
+        Node node = nodes.computeIfAbsent(nodeId,
+                id -> new Node(id, id, NodeType.SERVICE, namespace));
+        node.pod(podName).setMemoryUtilization(memUtil);
+        node.setMemoryUtilization(maxPodMemory(node));
         dirty.set(true);
     }
 
-    public void updateNodePodStatus(String workloadName, String namespace, PodPhase phase, int restartCount,
-            java.time.Instant lastRestartAt, String lastRestartReason) {
+    public void updateNodePodStatus(String workloadName, String namespace, String podName, PodPhase phase,
+            int restartCount, java.time.Instant lastRestartAt, String lastRestartReason) {
         Node node = nodes.computeIfAbsent(workloadName,
                 id -> {
                     dirty.set(true);
                     return new Node(id, id, NodeType.SERVICE, namespace);
                 });
-        if (node.getPodPhase() != phase || node.getRestartCount() != restartCount
-                || !java.util.Objects.equals(node.getLastRestartAt(), lastRestartAt)) {
-            node.setPodPhase(phase);
-            node.setRestartCount(restartCount);
-            node.setLastRestartAt(lastRestartAt);
-            node.setLastRestartReason(lastRestartReason);
+        PodInstance pod = node.pod(podName);
+        boolean changed = pod.getPodPhase() != phase || pod.getRestartCount() != restartCount
+                || !java.util.Objects.equals(pod.getLastRestartAt(), lastRestartAt);
+        pod.setStatus(phase, restartCount, lastRestartAt, lastRestartReason);
+        if (changed || node.getPodCount() != node.getPods().size()) {
+            recomputeStatusRollup(node);
             dirty.set(true);
         }
+    }
+
+    /**
+     * Removes pod replicas that have not reported any signal since {@code cutoff}
+     * and refreshes the affected workload roll-ups. Pods are ephemeral (names
+     * change on scale or restart), so a replica that stops reporting is dropped.
+     */
+    public void pruneStalePods(java.time.Instant cutoff) {
+        for (Node node : nodes.values()) {
+            boolean removed = node.getPods().values()
+                    .removeIf(p -> p.getLastSeenAt().isBefore(cutoff));
+            if (removed) {
+                node.setCpuUtilization(maxPodCpu(node));
+                node.setMemoryUtilization(maxPodMemory(node));
+                recomputeStatusRollup(node);
+                dirty.set(true);
+            }
+        }
+    }
+
+    private double maxPodCpu(Node node) {
+        return node.getPods().values().stream()
+                .mapToDouble(PodInstance::getCpuUtilization).max().orElse(0.0);
+    }
+
+    private double maxPodMemory(Node node) {
+        return node.getPods().values().stream()
+                .mapToDouble(PodInstance::getMemoryUtilization).max().orElse(0.0);
+    }
+
+    /**
+     * Recomputes the workload-level health roll-up from its pods: worst-case
+     * phase, the highest single-pod restart count, the most recent restart, and
+     * the live replica count.
+     */
+    private void recomputeStatusRollup(Node node) {
+        PodPhase worst = PodPhase.UNKNOWN;
+        int restarts = 0;
+        java.time.Instant lastRestartAt = null;
+        String lastRestartReason = null;
+        for (PodInstance pod : node.getPods().values()) {
+            if (pod.getPodPhase().isWorseThan(worst)) {
+                worst = pod.getPodPhase();
+            }
+            restarts = Math.max(restarts, pod.getRestartCount());
+            java.time.Instant podRestartAt = pod.getLastRestartAt();
+            if (podRestartAt != null
+                    && (lastRestartAt == null || podRestartAt.isAfter(lastRestartAt))) {
+                lastRestartAt = podRestartAt;
+                lastRestartReason = pod.getLastRestartReason();
+            }
+        }
+        node.setPodPhase(worst);
+        node.setRestartCount(restarts);
+        node.setPodCount(node.getPods().size());
+        node.setLastRestartAt(lastRestartAt);
+        node.setLastRestartReason(lastRestartReason);
+    }
+
+    private List<GraphSnapshot.PodDto> buildPodDtos(Node node, Instant now) {
+        return node.getPods().values().stream()
+                .sorted(java.util.Comparator.comparing(PodInstance::getPodName))
+                .map(p -> new GraphSnapshot.PodDto(
+                        p.getPodName(),
+                        round2(isResourceMetricFresh(p.getLastCpuUpdatedAt(), now) ? p.getCpuUtilization() : 0.0),
+                        round2(isResourceMetricFresh(p.getLastMemoryUpdatedAt(), now) ? p.getMemoryUtilization() : 0.0),
+                        p.getPodPhase(), p.getRestartCount(),
+                        p.getLastRestartAt(), p.getLastRestartReason(),
+                        p.getLastSeenAt()))
+                .toList();
+    }
+
+    private static double round2(double value) {
+        return Math.round(value * 100.0) / 100.0;
     }
 
     private LoadLevel classifyLoad(Node node) {
         if (node == null)
             return LoadLevel.NORMAL;
-        double cpu = node.getCpuUtilization();
-        double mem = node.getMemoryUtilization();
+        Instant now = Instant.now();
+        double cpu = effectiveCpuUtilization(node, now);
+        double mem = effectiveMemoryUtilization(node, now);
         if (cpu >= properties.getCpuCriticalThreshold() || mem >= properties.getMemCriticalThreshold())
             return LoadLevel.CRITICAL;
         if (cpu >= properties.getCpuHighThreshold() || mem >= properties.getMemHighThreshold())
@@ -292,6 +370,22 @@ public class GraphStateManager {
         if (cpu >= properties.getCpuElevatedThreshold() || mem >= properties.getMemElevatedThreshold())
             return LoadLevel.ELEVATED;
         return LoadLevel.NORMAL;
+    }
+
+    private double effectiveCpuUtilization(Node node, Instant now) {
+        return isResourceMetricFresh(node.getLastCpuUpdatedAt(), now) ? node.getCpuUtilization() : 0.0;
+    }
+
+    private double effectiveMemoryUtilization(Node node, Instant now) {
+        return isResourceMetricFresh(node.getLastMemoryUpdatedAt(), now) ? node.getMemoryUtilization() : 0.0;
+    }
+
+    private boolean isResourceMetricFresh(Instant updatedAt, Instant now) {
+        if (updatedAt == null) {
+            return false;
+        }
+        Duration age = Duration.between(updatedAt, now);
+        return age.compareTo(Duration.ofSeconds(properties.getResourceMetricStaleSeconds())) <= 0;
     }
 
     public ConcurrentMap<String, Node> getNodes() {

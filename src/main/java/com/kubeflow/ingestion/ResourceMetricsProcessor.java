@@ -77,6 +77,7 @@ public class ResourceMetricsProcessor {
             Map<String, String> resourceAttrs = extractAttributes(getList(resource, "attributes"));
             String workloadName = resolveWorkloadName(resourceAttrs);
             String namespace = resourceAttrs.get("k8s.namespace.name");
+            String podName = resolvePodName(resourceAttrs, workloadName);
 
             if (workloadName == null || workloadName.isBlank())
                 continue;
@@ -89,24 +90,24 @@ public class ResourceMetricsProcessor {
                     if (name != null && CPU_METRIC_NAMES.contains(name)) {
                         double value = extractLatestValue(metric);
                         if (value >= 0) {
-                            graphStateManager.updateNodeCpuUtilization(workloadName, namespace, value);
-                            log.debug("CPU utilization update [{}]: {} = {}", name, workloadName, value);
+                            graphStateManager.updateNodeCpuUtilization(workloadName, namespace, podName, value);
+                            log.debug("CPU utilization update [{}]: {}/{} = {}", name, workloadName, podName, value);
                             updated++;
                         }
                     } else if (name != null && MEMORY_RATIO_METRIC_NAMES.contains(name)) {
                         double value = extractLatestValue(metric);
                         if (value >= 0) {
-                            graphStateManager.updateNodeMemoryUtilization(workloadName, namespace, value);
-                            log.debug("Memory ratio update [{}]: {} = {}", name, workloadName, value);
+                            graphStateManager.updateNodeMemoryUtilization(workloadName, namespace, podName, value);
+                            log.debug("Memory ratio update [{}]: {}/{} = {}", name, workloadName, podName, value);
                             updated++;
                         }
                     } else if (name != null && MEMORY_BYTES_METRIC_NAMES.contains(name)) {
                         double bytes = extractLatestValue(metric);
                         if (bytes >= 0) {
                             double ratio = bytes / properties.getMemoryLimitBytes();
-                            graphStateManager.updateNodeMemoryUtilization(workloadName, namespace, ratio);
-                            log.debug("Memory bytes update [{}]: {} = {} bytes -> ratio {}", name, workloadName, bytes,
-                                    ratio);
+                            graphStateManager.updateNodeMemoryUtilization(workloadName, namespace, podName, ratio);
+                            log.debug("Memory bytes update [{}]: {}/{} = {} bytes -> ratio {}", name, workloadName,
+                                    podName, bytes, ratio);
                             updated++;
                         }
                     }
@@ -173,6 +174,18 @@ public class ResourceMetricsProcessor {
             return stripLastTwoSuffixes(pod);
 
         return null;
+    }
+
+    /**
+     * Resolves the pod identity for a kubeletstats resource block. Prefers the
+     * actual pod name so each replica is tracked separately; falls back to the
+     * workload name when no pod name is present (a single synthetic replica).
+     */
+    private String resolvePodName(Map<String, String> attrs, String workloadName) {
+        String pod = attrs.get("k8s.pod.name");
+        if (pod != null && !pod.isBlank())
+            return pod;
+        return workloadName;
     }
 
     /**

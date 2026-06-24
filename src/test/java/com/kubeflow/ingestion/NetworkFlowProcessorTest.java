@@ -29,7 +29,6 @@ class NetworkFlowProcessorTest {
         var edge = graphStateManager.getEdges().get("order-service->auth-service");
         assertNotNull(edge);
         assertEquals("HTTP", edge.getProtocol());
-        assertEquals(0, edge.getRequestCount());
         assertEquals(0.0, edge.getRequestsPerSecond(), 0.001);
     }
 

@@ -2,8 +2,6 @@ package com.kubeflow.cleanup;
 
 import com.kubeflow.aggregation.GraphStateManager;
 import com.kubeflow.api.GraphUpdatePublisher;
-import com.kubeflow.model.Edge;
-import com.kubeflow.model.Node;
 import com.kubeflow.support.KubeflowProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,9 +38,20 @@ public class StaleGraphCleaner {
         Duration staleDuration = Duration.ofSeconds(properties.getStaleThresholdSeconds());
         Instant cutoff = Instant.now().minus(staleDuration);
 
+        // Drop pod replicas that have stopped reporting, refreshing workload roll-ups.
+        graphStateManager.pruneStalePods(cutoff);
+
         List<String> staleEdges = new ArrayList<>();
         for (var entry : graphStateManager.getEdges().entrySet()) {
-            if (entry.getValue().getLastSeenAt().isBefore(cutoff)) {
+            var edge = entry.getValue();
+            // If the edge ever carried request traffic, use lastTrafficAt so that
+            // Beyla network-flow touches (which refresh lastSeenAt) cannot keep a
+            // traffic-less edge alive indefinitely. For topology-only edges that
+            // have never had a span, fall back to lastSeenAt.
+            Instant stalenessAnchor = edge.getLastTrafficAt() != null
+                    ? edge.getLastTrafficAt()
+                    : edge.getLastSeenAt();
+            if (stalenessAnchor.isBefore(cutoff)) {
                 staleEdges.add(entry.getKey());
             }
         }

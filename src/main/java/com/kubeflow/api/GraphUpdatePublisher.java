@@ -5,10 +5,13 @@ import com.kubeflow.model.GraphSnapshot;
 import com.kubeflow.persistence.SnapshotPersistenceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.Objects;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -45,7 +48,7 @@ public class GraphUpdatePublisher {
             List<GraphSnapshot> snapshots = graphStateManager.buildSnapshots();
             emitter.send(SseEmitter.event()
                     .name("graph-update")
-                    .data(snapshots));
+                    .data(eventPayload(snapshots)));
         } catch (IOException e) {
             emitter.complete();
             emitters.remove(emitter);
@@ -57,7 +60,7 @@ public class GraphUpdatePublisher {
 
     /**
      * Checks if the graph has changed since the last notification.
-     * If so, builds a snapshot, broadcasts to SSE clients, and persists.
+     * If so, builds a snapshot and broadcasts to SSE clients.
      * Call this after each ingestion batch or cleanup cycle.
      */
     public void notifyIfChanged() {
@@ -67,9 +70,6 @@ public class GraphUpdatePublisher {
 
         List<GraphSnapshot> snapshots = graphStateManager.buildSnapshots();
         broadcast(snapshots);
-        for (GraphSnapshot snapshot : snapshots) {
-            snapshotPersistenceService.save(snapshot);
-        }
 
         int totalNodes = snapshots.stream().mapToInt(s -> s.nodes().size()).sum();
         int totalEdges = snapshots.stream().mapToInt(s -> s.edges().size()).sum();
@@ -77,16 +77,48 @@ public class GraphUpdatePublisher {
                 snapshots.size(), totalNodes, totalEdges);
     }
 
+    /**
+     * Persists the current graph on a fixed cadence so historical replay samples
+     * edge-window decay continuously, even when no new telemetry arrives.
+     */
+    @Scheduled(fixedRateString = "${kubeflow.snapshot-persist-interval-millis:1000}")
+    public void persistCurrentSnapshots() {
+        List<GraphSnapshot> snapshots = graphStateManager.buildSnapshots();
+        if (snapshots.isEmpty()) {
+            return;
+        }
+        for (GraphSnapshot snapshot : snapshots) {
+            snapshotPersistenceService.save(snapshot);
+        }
+    }
+
+    /**
+     * Pushes the current graph on a fixed cadence so clients observe time-based
+     * metric decay (e.g. edge load level calming down) even when no new telemetry
+     * mutates in-memory state.
+     */
+    @Scheduled(fixedRateString = "${kubeflow.snapshot-persist-interval-millis:1000}")
+    public void publishCurrentSnapshots() {
+        if (emitters.isEmpty()) {
+            return;
+        }
+        broadcast(graphStateManager.buildSnapshots());
+    }
+
     private void broadcast(List<GraphSnapshot> snapshots) {
         for (SseEmitter emitter : emitters) {
             try {
                 emitter.send(SseEmitter.event()
                         .name("graph-update")
-                        .data(snapshots));
+                        .data(eventPayload(snapshots)));
             } catch (IOException e) {
                 emitter.complete();
                 emitters.remove(emitter);
             }
         }
+    }
+
+    private static @NonNull Object eventPayload(List<GraphSnapshot> snapshots) {
+        return Objects.requireNonNull(snapshots, "snapshots");
     }
 }

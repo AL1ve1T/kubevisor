@@ -12,7 +12,7 @@ public class KubeflowProperties {
 
     private long staleThresholdSeconds = 120;
     private long cleanupIntervalSeconds = 30;
-    private long retentionHours = 24;
+    private int retentionDays = 30;
 
     // CPU utilization thresholds (0.0 – 1.0) for node load classification
     private double cpuElevatedThreshold = 0.50;
@@ -34,6 +34,12 @@ public class KubeflowProperties {
     // How often to scrape pod status from the Kubernetes API (in seconds).
     private int podStatusScrapeIntervalSeconds = 15;
 
+    // How often to persist graph snapshots for history replay (in milliseconds).
+    private long snapshotPersistIntervalMillis = 1000;
+
+    // How long resource metrics remain valid without a fresh kubeletstats sample.
+    private long resourceMetricStaleSeconds = 30;
+
     public long getStaleThresholdSeconds() {
         return staleThresholdSeconds;
     }
@@ -50,12 +56,12 @@ public class KubeflowProperties {
         this.cleanupIntervalSeconds = cleanupIntervalSeconds;
     }
 
-    public long getRetentionHours() {
-        return retentionHours;
+    public int getRetentionDays() {
+        return retentionDays;
     }
 
-    public void setRetentionHours(long retentionHours) {
-        this.retentionHours = retentionHours;
+    public void setRetentionDays(int retentionDays) {
+        this.retentionDays = retentionDays;
     }
 
     public double getCpuElevatedThreshold() {
@@ -120,5 +126,21 @@ public class KubeflowProperties {
 
     public void setPodStatusScrapeIntervalSeconds(int podStatusScrapeIntervalSeconds) {
         this.podStatusScrapeIntervalSeconds = podStatusScrapeIntervalSeconds;
+    }
+
+    public long getSnapshotPersistIntervalMillis() {
+        return snapshotPersistIntervalMillis;
+    }
+
+    public void setSnapshotPersistIntervalMillis(long snapshotPersistIntervalMillis) {
+        this.snapshotPersistIntervalMillis = snapshotPersistIntervalMillis;
+    }
+
+    public long getResourceMetricStaleSeconds() {
+        return resourceMetricStaleSeconds;
+    }
+
+    public void setResourceMetricStaleSeconds(long resourceMetricStaleSeconds) {
+        this.resourceMetricStaleSeconds = resourceMetricStaleSeconds;
     }
 }

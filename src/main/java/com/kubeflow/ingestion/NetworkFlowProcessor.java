@@ -103,7 +103,7 @@ public class NetworkFlowProcessor {
             } else {
                 // Internal traffic: both source and destination in the same namespace
                 // Skip self-referencing flows
-                if (srcOwner.equals(dstOwner)) {
+                if (srcOwner != null && srcOwner.equals(dstOwner)) {
                     continue;
                 }
                 graphStateManager.registerNetworkFlowEdge(srcOwner, srcNamespace, dstOwner, dstNamespace,

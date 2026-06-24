@@ -25,7 +25,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -178,10 +177,10 @@ public class PodStatusScraper {
         });
         List<Map<String, Object>> items = getList(body, "items");
 
-        // Aggregate by workload name. A deployment runs multiple pod replicas — we
-        // track the worst-case phase and the maximum restart count across all of them.
-        Map<String, WorkloadStatus> byWorkload = new HashMap<>();
-
+        // Each pod is pushed individually as a replica of its workload. The
+        // GraphStateManager keeps per-pod health and derives the workload-level
+        // roll-up (worst-case phase, highest restart count) from its pods.
+        int podCount = 0;
         for (Map<String, Object> pod : items) {
             Map<String, Object> metadata = getMap(pod, "metadata");
             String podName = getString(metadata, "name");
@@ -190,26 +189,19 @@ public class PodStatusScraper {
             }
 
             String workloadName = resolveWorkloadName(metadata, podName);
-            WorkloadStatus status = byWorkload.computeIfAbsent(workloadName, k -> new WorkloadStatus());
 
             Map<String, Object> podStatus = getMap(pod, "status");
             PodPhase phase = classifyPod(podStatus);
             int restarts = sumRestarts(podStatus);
             Instant lastRestartAt = extractLastRestartAt(podStatus);
             String lastRestartReason = extractLastRestartReason(podStatus);
-            status.merge(phase, restarts, lastRestartAt, lastRestartReason);
-        }
 
-        for (Map.Entry<String, WorkloadStatus> entry : byWorkload.entrySet()) {
             graphStateManager.updateNodePodStatus(
-                    entry.getKey(), namespace,
-                    entry.getValue().phase,
-                    entry.getValue().restartCount,
-                    entry.getValue().lastRestartAt,
-                    entry.getValue().lastRestartReason);
+                    workloadName, namespace, podName, phase, restarts, lastRestartAt, lastRestartReason);
+            podCount++;
         }
 
-        log.debug("PodStatusScraper: scraped {} workload(s) in namespace={}", byWorkload.size(), namespace);
+        log.debug("PodStatusScraper: scraped {} pod(s) in namespace={}", podCount, namespace);
     }
 
     /**
@@ -410,28 +402,5 @@ public class PodStatusScraper {
     private static String getString(Map<String, Object> map, String key) {
         Object val = map.get(key);
         return val instanceof String s ? s : null;
-    }
-
-    // -------------------------------------------------------------------------
-    // Worst-case aggregation across pod replicas
-    // -------------------------------------------------------------------------
-
-    static final class WorkloadStatus {
-        PodPhase phase = PodPhase.UNKNOWN;
-        int restartCount = 0;
-        Instant lastRestartAt = null;
-        String lastRestartReason = null;
-
-        void merge(PodPhase newPhase, int newRestarts, Instant newLastRestartAt, String newLastRestartReason) {
-            if (newPhase.isWorseThan(this.phase)) {
-                this.phase = newPhase;
-            }
-            this.restartCount = Math.max(this.restartCount, newRestarts);
-            if (newLastRestartAt != null
-                    && (this.lastRestartAt == null || newLastRestartAt.isAfter(this.lastRestartAt))) {
-                this.lastRestartAt = newLastRestartAt;
-                this.lastRestartReason = newLastRestartReason;
-            }
-        }
     }
 }

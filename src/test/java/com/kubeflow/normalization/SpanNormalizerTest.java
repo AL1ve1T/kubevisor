@@ -130,6 +130,26 @@ class SpanNormalizerTest {
     }
 
     @Test
+    void normalize_serverSpanWithClientAddressAsWorkloadName_usesDirectly() {
+        // Beyla resolves Kubernetes metadata and sets client.address to the workload
+        // name instead of the raw pod IP when metadata is available.
+        ParsedSpan span = new ParsedSpan(
+                "trace3f", "span3f", "parent3f",
+                "order-service", "demo",
+                "GET /api/orders", "2",
+                1_000_000_000L, 1_040_000_000L,
+                0,
+                Map.of("http.request.method", "GET", "client.address", "k6"),
+                Map.of());
+
+        InteractionEvent event = normalizer.normalize(span);
+
+        assertNotNull(event);
+        assertEquals("k6", event.sourceService());
+        assertEquals("order-service", event.targetService());
+    }
+
+    @Test
     void normalize_serverSpanWithUnknownClientAddress_attributesToExternal() {
         ParsedSpan span = new ParsedSpan(
                 "trace3c", "span3c", "parent3c",
@@ -144,6 +164,46 @@ class SpanNormalizerTest {
 
         assertNotNull(event);
         assertEquals("external", event.sourceService());
+        assertEquals("ticket-service", event.targetService());
+    }
+
+    @Test
+    void normalize_serverSpanWithNewSemconvHttpRequestMethod_attributesToExternal() {
+        // Beyla latest uses http.request.method (OTel HTTP semconv v1.20+)
+        ParsedSpan span = new ParsedSpan(
+                "trace3d", "span3d", "parent3d",
+                "order-service", "demo",
+                "GET /api/orders", "2",
+                1_000_000_000L, 1_040_000_000L,
+                0,
+                Map.of("http.request.method", "GET", "url.path", "/api/orders"),
+                Map.of());
+
+        InteractionEvent event = normalizer.normalize(span);
+
+        assertNotNull(event);
+        assertEquals("external", event.sourceService());
+        assertEquals("order-service", event.targetService());
+        assertEquals(40.0, event.latencyMs(), 0.001);
+    }
+
+    @Test
+    void normalize_serverSpanWithClientAddressAndPort_stripsPortBeforeResolving() {
+        podIpResolver.register("10.244.0.14", "order-service");
+
+        ParsedSpan span = new ParsedSpan(
+                "trace3e", "span3e", "parent3e",
+                "ticket-service", "demo",
+                "POST /tickets", "2",
+                1_000_000_000L, 1_025_000_000L,
+                0,
+                Map.of("http.request.method", "POST", "client.address", "10.244.0.14:54321"),
+                Map.of());
+
+        InteractionEvent event = normalizer.normalize(span);
+
+        assertNotNull(event);
+        assertEquals("order-service", event.sourceService());
         assertEquals("ticket-service", event.targetService());
     }
 

@@ -89,8 +89,13 @@ public class SpanNormalizer {
     }
 
     private boolean isHttpServerSpan(ParsedSpan span) {
-        // HTTP spans from Spring Boot OTel and Beyla always carry a method attribute
-        return span.attributes().containsKey("method")
+        // HTTP spans carry a method attribute — check all known semconv variants:
+        // - "http.request.method" (OTel HTTP semconv v1.20+ / Beyla latest)
+        // - "http.method" (legacy OTel semconv)
+        // - "method" (old Beyla eBPF shorthand)
+        // - "rpc.method" (gRPC spans)
+        return span.attributes().containsKey("http.request.method")
+                || span.attributes().containsKey("method")
                 || span.attributes().containsKey("http.method")
                 || span.attributes().containsKey("rpc.method");
     }
@@ -124,13 +129,24 @@ public class SpanNormalizer {
         if (clientName != null)
             return clientName;
 
-        // Resolve caller from client.address (pod IP) via learned mappings
+        // Resolve caller from client.address.
+        // Beyla can set this to either a raw pod IP or an already-resolved workload
+        // name,
+        // depending on whether Kubernetes metadata was available at capture time.
         String clientAddress = span.attributes().get("client.address");
         if (clientAddress != null) {
-            String resolved = podIpResolver.resolve(clientAddress);
-            if (resolved != null)
-                return resolved;
-            log.debug("Could not resolve client.address={} to a service name", clientAddress);
+            if (looksLikeIpAddress(clientAddress)) {
+                // Strip port suffix if present (e.g. "10.244.0.5:12345" -> "10.244.0.5").
+                String ip = clientAddress.contains(":") ? clientAddress.substring(0, clientAddress.lastIndexOf(':'))
+                        : clientAddress;
+                String resolved = podIpResolver.resolve(ip);
+                if (resolved != null)
+                    return resolved;
+                log.debug("Could not resolve client.address={} to a service name", clientAddress);
+            } else {
+                // Already a workload/service name — use directly.
+                return clientAddress;
+            }
         }
 
         return null;
@@ -154,5 +170,12 @@ public class SpanNormalizer {
             return "HTTP";
 
         return "unknown";
+    }
+
+    private static final java.util.regex.Pattern IP_PATTERN = java.util.regex.Pattern
+            .compile("^\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?$|^\\[?[0-9a-fA-F:]+\\]?(:\\d+)?$");
+
+    private boolean looksLikeIpAddress(String value) {
+        return IP_PATTERN.matcher(value).matches();
     }
 }

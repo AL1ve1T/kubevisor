@@ -1,7 +1,9 @@
 package com.kubeflow.model;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.lang.Nullable;
 
 /**
@@ -18,16 +20,26 @@ public class Node {
     // Resource utilization in [0.0, 1.0]; 0.0 means no data received yet
     private volatile double cpuUtilization;
     private volatile double memoryUtilization;
+    @Nullable
+    private volatile Instant lastCpuUpdatedAt = null;
+    @Nullable
+    private volatile Instant lastMemoryUpdatedAt = null;
 
     // Pod health as scraped from the Kubernetes API
     private volatile PodPhase podPhase = PodPhase.UNKNOWN;
     private volatile int restartCount = 0;
+    // Number of pod replicas for this workload (0 = unknown / not yet scraped)
+    private volatile int podCount = 0;
     // Timestamp and reason of the most recent container termination (null if never
     // restarted)
     @Nullable
     private volatile Instant lastRestartAt = null;
     @Nullable
     private volatile String lastRestartReason = null;
+
+    // Per-replica detail backing this workload, keyed by pod name. Node-level
+    // resource and health fields above are roll-ups derived from these.
+    private final Map<String, PodInstance> pods = new ConcurrentHashMap<>();
 
     public Node(String id, String name, NodeType type, String namespace) {
         this.id = Objects.requireNonNull(id);
@@ -79,6 +91,7 @@ public class Node {
 
     public void setCpuUtilization(double cpuUtilization) {
         this.cpuUtilization = cpuUtilization;
+        this.lastCpuUpdatedAt = Instant.now();
     }
 
     public double getMemoryUtilization() {
@@ -87,6 +100,17 @@ public class Node {
 
     public void setMemoryUtilization(double memoryUtilization) {
         this.memoryUtilization = memoryUtilization;
+        this.lastMemoryUpdatedAt = Instant.now();
+    }
+
+    @Nullable
+    public Instant getLastCpuUpdatedAt() {
+        return lastCpuUpdatedAt;
+    }
+
+    @Nullable
+    public Instant getLastMemoryUpdatedAt() {
+        return lastMemoryUpdatedAt;
     }
 
     public PodPhase getPodPhase() {
@@ -105,6 +129,14 @@ public class Node {
         this.restartCount = restartCount;
     }
 
+    public int getPodCount() {
+        return podCount;
+    }
+
+    public void setPodCount(int podCount) {
+        this.podCount = podCount;
+    }
+
     @Nullable
     public Instant getLastRestartAt() {
         return lastRestartAt;
@@ -121,6 +153,14 @@ public class Node {
 
     public void setLastRestartReason(@Nullable String lastRestartReason) {
         this.lastRestartReason = lastRestartReason;
+    }
+
+    public Map<String, PodInstance> getPods() {
+        return pods;
+    }
+
+    public PodInstance pod(String podName) {
+        return pods.computeIfAbsent(podName, PodInstance::new);
     }
 
     @Override

@@ -19,7 +19,6 @@ public class SpanParser {
 
     private static final Logger log = LoggerFactory.getLogger(SpanParser.class);
 
-    @SuppressWarnings("unchecked")
     public List<ParsedSpan> parseSpans(Map<String, Object> otlpPayload) {
         List<ParsedSpan> result = new ArrayList<>();
 
@@ -66,28 +65,24 @@ public class SpanParser {
                 statusCode, attributes, resourceAttributes);
     }
 
-    @SuppressWarnings("unchecked")
     private String extractServiceName(Map<String, Object> resourceSpan) {
         Map<String, Object> resource = getMap(resourceSpan, "resource");
         List<Map<String, Object>> attrs = getList(resource, "attributes");
         return findAttributeValue(attrs, "service.name");
     }
 
-    @SuppressWarnings("unchecked")
     private String extractServiceNamespace(Map<String, Object> resourceSpan) {
         Map<String, Object> resource = getMap(resourceSpan, "resource");
         List<Map<String, Object>> attrs = getList(resource, "attributes");
         return findAttributeValue(attrs, "service.namespace");
     }
 
-    @SuppressWarnings("unchecked")
     private Map<String, String> extractResourceAttributes(Map<String, Object> resourceSpan) {
         Map<String, Object> resource = getMap(resourceSpan, "resource");
         List<Map<String, Object>> attrs = getList(resource, "attributes");
         return extractAttributes(attrs);
     }
 
-    @SuppressWarnings("unchecked")
     private int extractStatusCode(Map<String, Object> span) {
         Map<String, Object> status = getMap(span, "status");
         Object code = status.get("code");
@@ -107,7 +102,6 @@ public class SpanParser {
         return 0;
     }
 
-    @SuppressWarnings("unchecked")
     private Map<String, String> extractAttributes(List<Map<String, Object>> attrs) {
         Map<String, String> result = new HashMap<>();
         for (Map<String, Object> attr : attrs) {
@@ -131,7 +125,6 @@ public class SpanParser {
         return null;
     }
 
-    @SuppressWarnings("unchecked")
     private String findAttributeValue(List<Map<String, Object>> attrs, String key) {
         for (Map<String, Object> attr : attrs) {
             if (key.equals(attr.get("key"))) {
@@ -142,19 +135,37 @@ public class SpanParser {
         return null;
     }
 
-    @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> getList(Map<String, Object> map, String key) {
         Object val = map.get(key);
-        if (val instanceof List<?> list)
-            return (List<Map<String, Object>>) list;
+        if (val instanceof List<?> list) {
+            List<Map<String, Object>> typed = new ArrayList<>();
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> rawMap) {
+                    Map<String, Object> converted = new HashMap<>();
+                    for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+                        if (entry.getKey() != null) {
+                            converted.put(String.valueOf(entry.getKey()), entry.getValue());
+                        }
+                    }
+                    typed.add(converted);
+                }
+            }
+            return typed;
+        }
         return Collections.emptyList();
     }
 
-    @SuppressWarnings("unchecked")
     private static Map<String, Object> getMap(Map<String, Object> map, String key) {
         Object val = map.get(key);
-        if (val instanceof Map<?, ?> m)
-            return (Map<String, Object>) m;
+        if (val instanceof Map<?, ?> rawMap) {
+            Map<String, Object> converted = new HashMap<>();
+            for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+                if (entry.getKey() != null) {
+                    converted.put(String.valueOf(entry.getKey()), entry.getValue());
+                }
+            }
+            return converted;
+        }
         return Collections.emptyMap();
     }
 

@@ -24,7 +24,15 @@ import java.security.cert.X509Certificate;
 /**
  * Periodically queries the Kubernetes API for pods and registers their
  * IP-to-service-name mappings in PodIpResolver.
- * Runs only when deployed in-cluster (SA token available).
+ *
+ * <p>
+ * Operates in two modes:
+ * <ul>
+ * <li><b>In-cluster</b>: uses the SA bearer token + K8s HTTPS API.</li>
+ * <li><b>Local dev</b>: uses a {@code kubectl get pods} subprocess — inherits
+ * the active kubeconfig context so it works with any auth method without
+ * extra configuration.</li>
+ * </ul>
  */
 @Component
 public class KubernetesPodWatcher {
@@ -40,7 +48,7 @@ public class KubernetesPodWatcher {
     private final String targetNamespace;
 
     private HttpClient httpClient;
-    private boolean inCluster;
+    private final boolean inCluster;
 
     public KubernetesPodWatcher(PodIpResolver podIpResolver,
             ObjectMapper objectMapper,
@@ -53,60 +61,85 @@ public class KubernetesPodWatcher {
         if (inCluster) {
             try {
                 this.httpClient = buildHttpClient();
-                log.info("KubernetesPodWatcher initialized for namespace '{}'", targetNamespace);
+                log.info("KubernetesPodWatcher: in-cluster mode for namespace '{}'", targetNamespace);
             } catch (Exception e) {
-                log.warn("Failed to initialize K8s HTTP client, pod watching disabled: {}", e.getMessage());
-                this.inCluster = false;
+                log.warn("Failed to initialize K8s HTTP client, falling back to kubectl: {}", e.getMessage());
             }
         } else {
-            log.info("Not running in-cluster, pod watching disabled");
+            log.info("KubernetesPodWatcher: local dev mode — will use 'kubectl get pods' subprocess for namespace '{}'",
+                    targetNamespace);
         }
     }
 
     @Scheduled(fixedDelayString = "${kubeflow.pod-watcher.interval-ms:15000}", initialDelay = 5000)
     public void refreshPodMappings() {
-        if (!inCluster) {
+        try {
+            String json = inCluster && httpClient != null ? fetchViaApi() : fetchViaKubectl();
+            processPodList(json);
+        } catch (Exception e) {
+            log.warn("Failed to refresh pod IP mappings: {}", e.getMessage());
+        }
+    }
+
+    private String fetchViaApi() throws Exception {
+        String token = Files.readString(TOKEN_PATH).trim();
+        String url = API_BASE + "/api/v1/namespaces/" + targetNamespace + "/pods";
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Authorization", "Bearer " + token)
+                .GET()
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() != 200) {
+            throw new IllegalStateException("K8s API returned status " + response.statusCode());
+        }
+        return response.body();
+    }
+
+    private String fetchViaKubectl() throws Exception {
+        Process process = new ProcessBuilder(
+                "kubectl", "get", "pods",
+                "-n", targetNamespace,
+                "-o", "json")
+                .redirectErrorStream(false)
+                .start();
+
+        String stdout = new String(process.getInputStream().readAllBytes());
+        String stderr = new String(process.getErrorStream().readAllBytes());
+
+        boolean finished = process.waitFor(15, java.util.concurrent.TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            throw new IllegalStateException("kubectl get pods timed out for namespace=" + targetNamespace);
+        }
+        if (process.exitValue() != 0) {
+            throw new IllegalStateException(
+                    "kubectl get pods failed (exit=" + process.exitValue() + "): " + stderr.strip());
+        }
+        return stdout;
+    }
+
+    void processPodList(String json) throws Exception {
+        JsonNode root = objectMapper.readTree(json);
+        JsonNode items = root.get("items");
+        if (items == null || !items.isArray()) {
             return;
         }
 
-        try {
-            String token = Files.readString(TOKEN_PATH).trim();
-            String url = API_BASE + "/api/v1/namespaces/" + targetNamespace + "/pods";
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Authorization", "Bearer " + token)
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) {
-                log.warn("K8s API returned status {}: {}", response.statusCode(),
-                        response.body().substring(0, Math.min(200, response.body().length())));
-                return;
+        int registered = 0;
+        for (JsonNode pod : items) {
+            String podIp = textOrNull(pod, "/status/podIP");
+            String serviceName = resolveServiceName(pod);
+            if (podIp != null && serviceName != null) {
+                podIpResolver.register(podIp, serviceName);
+                registered++;
             }
-
-            JsonNode root = objectMapper.readTree(response.body());
-            JsonNode items = root.get("items");
-            if (items == null || !items.isArray()) {
-                return;
-            }
-
-            int registered = 0;
-            for (JsonNode pod : items) {
-                String podIp = textOrNull(pod, "/status/podIP");
-                String serviceName = resolveServiceName(pod);
-                if (podIp != null && serviceName != null) {
-                    podIpResolver.register(podIp, serviceName);
-                    registered++;
-                }
-            }
-            log.debug("Refreshed pod mappings: {} pods registered, resolver size={}", registered,
-                    podIpResolver.size());
-        } catch (Exception e) {
-            log.warn("Failed to refresh pod mappings: {}", e.getMessage());
         }
+        log.debug("Refreshed pod IP mappings: {} pods in namespace={}, resolver size={}",
+                registered, targetNamespace, podIpResolver.size());
     }
 
     private String resolveServiceName(JsonNode pod) {
