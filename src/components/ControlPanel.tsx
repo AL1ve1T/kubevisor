@@ -71,7 +71,7 @@ export function ControlPanel({
                 }}
             >
                 <div style={{ fontSize: 15, fontWeight: 800, color: "#f9fafb", letterSpacing: 0.3 }}>
-                    kubeflow
+                    KubeVizor
                 </div>
                 <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
                     service topology

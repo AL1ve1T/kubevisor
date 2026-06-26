@@ -5,7 +5,7 @@
 ```mermaid
 flowchart LR
     telemetry[Example services\nauth / order / ticket] -->|telemetry| backend[Backend\naggregation + history]
-    backend -->|GraphSnapshot[]| frontend[kubeflow.frontend]
+    backend -->|GraphSnapshot[]| frontend[KubeVizor]
     frontend -->|renders| user[Observability UI]
 ```
 
