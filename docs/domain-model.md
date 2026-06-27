@@ -38,8 +38,11 @@ unresolved span-name targets. Type inference heuristics live in
 
 `PodInstance` carries per-replica `cpuUtilization`, `memoryUtilization`,
 `podPhase`, `restartCount`, restart metadata, and freshness timestamps.
-Pods are ephemeral — a replica that stops reporting past the stale cutoff is
-pruned by `GraphStateManager.pruneStalePods`, and the workload roll-up is
+Pods are ephemeral — a replica is dropped either by
+`GraphStateManager.reconcileNamespacePods` (immediately, when an authoritative
+pod-list scrape no longer reports it — i.e. it was deleted/terminated) or by
+`GraphStateManager.pruneStalePods` (a fallback for when a replica simply stops
+reporting past the stale cutoff). In both cases the workload roll-up is
 recomputed.
 
 `PodPhase` models operational health (e.g. `RUNNING`, `CrashLoopBackOff`,
@@ -48,16 +51,31 @@ phase for the workload roll-up. `UNKNOWN` means no pod data has been received ye
 
 ## Edge
 
-An `Edge` is a **directed** link `source->target` carrying aggregated rolling
+An `Edge` is a **directed** link `source->target` carrying per-second traffic
 metrics. Its `id` is `"<sourceId>-><targetId>"`.
 
-- **Windowed metrics** are computed over a **60-second sliding window** of
-  one-second buckets (a ring buffer indexed by `epochSecond % 60`):
-  - `requestsPerSecond` — total requests in the window / 60.
-  - `averageLatencyMs` — sum of latencies / requests in the window.
-  - `maxLatencyMs` — max bucket latency in the window.
-  - `errorRate` — errors / requests in the window, in `[0.0, 1.0]`.
-  All windowed metrics fade to zero within 60s after traffic stops.
+- **Instantaneous metrics** describe a single one-second interval — not a
+  rolling average. Requests are bucketed by their **span event time**
+  (`InteractionEvent.timestamp`), not by arrival time, so a batch of spans that
+  arrives together (the demo SDK flushes roughly every 5 s) is spread back across
+  the real seconds in which the requests happened rather than spiking into one
+  arrival second. The edge keeps two adjacent per-second accumulators (the latest
+  second seen and the one before it) and always reports the **most recently
+  completed** second — the "previous" bucket, which is only finalized once a
+  strictly newer second arrives — so the value is a stable whole-second count
+  rather than a partial, still-filling one:
+  - `requestsPerSecond` — number of requests observed during that second.
+  - `averageLatencyMs` — sum of latencies / requests in that second.
+  - `maxLatencyMs` — max request latency in that second.
+  - `errorRate` — errors / requests in that second, in `[0.0, 1.0]`.
+  Because export batches arrive with gaps, the last reported value is **held**
+  until newer traffic replaces it; it only decays to zero once no traffic has
+  been recorded for `traffic-hold-seconds` (default 10 s, configurable). This
+  bridges the gap between batches so the load reading does not flicker on and off
+  between flushes. The hold also means edge load lingers for up to that many
+  seconds after traffic actually stops, on top of the telemetry export lag
+  (the demo SDK batches spans before sending) — lower `traffic-hold-seconds` to
+  make load fade out sooner after a load test ends.
 - **Lifetime counter**: `errorCount` accumulates for the edge's whole lifetime
   (display only).
 - `protocol` — e.g. `HTTP`, `postgresql`, `redis`, `mysql`, `mongodb`, `kafka`,
@@ -67,7 +85,7 @@ metrics. Its `id` is `"<sourceId>-><targetId>"`.
   request span is recorded. Stale cleanup anchors on `lastTrafficAt` when present
   so a traffic-less edge cannot be kept alive forever by network-flow touches.
 
-`Edge` is thread-safe: ring-buffer mutation/reads are guarded by a lock and
+`Edge` is thread-safe: the per-second accumulators are guarded by a lock and
 `errorCount` is an `AtomicLong`.
 
 ## InteractionEvent

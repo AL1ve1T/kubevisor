@@ -6,18 +6,29 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Represents a directed edge between two nodes in the topology graph.
- * Contains aggregated rolling metrics for the communication link.
  *
- * Traffic metrics (RPS, average latency, error rate) are computed over a
- * 60-second sliding window of one-second buckets. Once traffic stops, all
- * windowed metrics fade to zero within 60 seconds.
+ * Traffic metrics describe a single real one-second interval of observed
+ * traffic — not a rolling average. Requests are bucketed by the span's own
+ * event time (not arrival time), because telemetry is exported in batches: a
+ * whole batch of spans arrives at once but represents several seconds of real
+ * traffic. The edge reports the most recently *completed* one-second bucket and
+ * holds that value between export batches, so a steady 10 req/s reads as ~10
+ * instead of flickering between a spike and zero. Once no new traffic has been
+ * seen for {@link #DEFAULT_TRAFFIC_HOLD_SECONDS} (or the configured hold passed
+ * by the snapshot path), all metrics drop to zero.
  *
  * Lifetime counter (errorCount) accumulates for the full lifetime of the edge
  * and is kept for display purposes.
  */
 public class Edge {
 
-    private static final int WINDOW_SECONDS = 60;
+    // How long the last measured per-second value keeps being reported after the
+    // newest observed traffic, before the edge is treated as idle and reports
+    // zero. Must exceed the telemetry export interval (SDK batch + collector
+    // flush) so steady traffic does not flicker between export batches. Used as
+    // the default when no explicit hold is supplied; the snapshot path passes a
+    // configurable value (kubevizor.traffic-hold-seconds).
+    public static final long DEFAULT_TRAFFIC_HOLD_SECONDS = 10;
 
     private final String id;
     private final String sourceNodeId;
@@ -31,15 +42,22 @@ public class Edge {
     // Lifetime counter – used for the DTO field errorCount
     private final AtomicLong errorCount = new AtomicLong(0);
 
-    // 60-second ring buffer: one slot per second, indexed by epochSecond %
-    // WINDOW_SECONDS
-    private final long[] bucketRequests = new long[WINDOW_SECONDS];
-    private final long[] bucketErrors = new long[WINDOW_SECONDS];
-    private final double[] bucketLatency = new double[WINDOW_SECONDS]; // sum of latencies in the bucket
-    private final double[] bucketMaxLatency = new double[WINDOW_SECONDS]; // max latency in the bucket
-    // tracks which calendar second each ring slot covers; 0 means "empty"
-    private final long[] bucketEpoch = new long[WINDOW_SECONDS];
-    private final Object bucketLock = new Object();
+    // Two adjacent one-second buckets keyed by span event-time second: the latest
+    // second seen so far ("current", possibly still filling as later batches
+    // deliver its remaining spans) and the one before it ("previous", complete).
+    // Reported metrics come from "previous" so a partially-delivered second is
+    // never shown. Guarded by lock.
+    private final Object lock = new Object();
+    private long currentSecond = Long.MIN_VALUE;
+    private long currentRequests;
+    private long currentErrors;
+    private double currentLatencySum;
+    private double currentMaxLatency;
+    private long previousSecond = Long.MIN_VALUE;
+    private long previousRequests;
+    private long previousErrors;
+    private double previousLatencySum;
+    private double previousMaxLatency;
 
     public Edge(String sourceNodeId, String targetNodeId, String protocol) {
         this.id = sourceNodeId + "->" + targetNodeId;
@@ -81,23 +99,25 @@ public class Edge {
         return errorCount.get();
     }
 
-    // ---- windowed metric accessors ----
+    // ---- metric accessors (most recently completed one-second bucket) ----
+    //
+    // All reads report the "previous" second — the latest fully-delivered one —
+    // and return zero once no new traffic has arrived for the hold window. The
+    // single-arg variants use DEFAULT_TRAFFIC_HOLD_SECONDS; the snapshot path
+    // supplies the configured hold via the two-arg variants.
 
     public double getRequestsPerSecond() {
         return getRequestsPerSecond(Instant.now());
     }
 
     public double getRequestsPerSecond(Instant snapshotTime) {
-        long now = epochSecond(snapshotTime);
-        long total = 0;
-        synchronized (bucketLock) {
-            for (int i = 0; i < WINDOW_SECONDS; i++) {
-                if (now - bucketEpoch[i] < WINDOW_SECONDS) {
-                    total += bucketRequests[i];
-                }
-            }
+        return getRequestsPerSecond(snapshotTime, DEFAULT_TRAFFIC_HOLD_SECONDS);
+    }
+
+    public double getRequestsPerSecond(Instant snapshotTime, long holdSeconds) {
+        synchronized (lock) {
+            return isStale(snapshotTime, holdSeconds) ? 0.0 : (double) previousRequests;
         }
-        return (double) total / WINDOW_SECONDS;
     }
 
     public double getAverageLatencyMs() {
@@ -105,18 +125,16 @@ public class Edge {
     }
 
     public double getAverageLatencyMs(Instant snapshotTime) {
-        long now = epochSecond(snapshotTime);
-        long reqs = 0;
-        double lat = 0.0;
-        synchronized (bucketLock) {
-            for (int i = 0; i < WINDOW_SECONDS; i++) {
-                if (now - bucketEpoch[i] < WINDOW_SECONDS) {
-                    reqs += bucketRequests[i];
-                    lat += bucketLatency[i];
-                }
+        return getAverageLatencyMs(snapshotTime, DEFAULT_TRAFFIC_HOLD_SECONDS);
+    }
+
+    public double getAverageLatencyMs(Instant snapshotTime, long holdSeconds) {
+        synchronized (lock) {
+            if (isStale(snapshotTime, holdSeconds) || previousRequests == 0) {
+                return 0.0;
             }
+            return previousLatencySum / previousRequests;
         }
-        return reqs > 0 ? lat / reqs : 0.0;
     }
 
     public double getMaxLatencyMs() {
@@ -124,16 +142,13 @@ public class Edge {
     }
 
     public double getMaxLatencyMs(Instant snapshotTime) {
-        long now = epochSecond(snapshotTime);
-        double max = 0.0;
-        synchronized (bucketLock) {
-            for (int i = 0; i < WINDOW_SECONDS; i++) {
-                if (now - bucketEpoch[i] < WINDOW_SECONDS && bucketMaxLatency[i] > max) {
-                    max = bucketMaxLatency[i];
-                }
-            }
+        return getMaxLatencyMs(snapshotTime, DEFAULT_TRAFFIC_HOLD_SECONDS);
+    }
+
+    public double getMaxLatencyMs(Instant snapshotTime, long holdSeconds) {
+        synchronized (lock) {
+            return isStale(snapshotTime, holdSeconds) ? 0.0 : previousMaxLatency;
         }
-        return max;
     }
 
     public double getErrorRate() {
@@ -141,45 +156,30 @@ public class Edge {
     }
 
     public double getErrorRate(Instant snapshotTime) {
-        long now = epochSecond(snapshotTime);
-        long reqs = 0;
-        long errs = 0;
-        synchronized (bucketLock) {
-            for (int i = 0; i < WINDOW_SECONDS; i++) {
-                if (now - bucketEpoch[i] < WINDOW_SECONDS) {
-                    reqs += bucketRequests[i];
-                    errs += bucketErrors[i];
-                }
+        return getErrorRate(snapshotTime, DEFAULT_TRAFFIC_HOLD_SECONDS);
+    }
+
+    public double getErrorRate(Instant snapshotTime, long holdSeconds) {
+        synchronized (lock) {
+            if (isStale(snapshotTime, holdSeconds) || previousRequests == 0) {
+                return 0.0;
             }
+            return (double) previousErrors / previousRequests;
         }
-        return reqs > 0 ? (double) errs / reqs : 0.0;
     }
 
     // ---- mutation ----
 
-    public void recordRequest(double latencyMs, boolean isError) {
+    // Records one observed request, bucketed by its span event-time second so a
+    // batch of spans is spread across the seconds it actually happened in rather
+    // than lumped into the single second the batch was received.
+    public void recordRequest(Instant eventTime, double latencyMs, boolean isError) {
         if (isError) {
             errorCount.incrementAndGet();
         }
-        long now = epochSecond();
-        int idx = bucketIndex(now);
-        synchronized (bucketLock) {
-            if (bucketEpoch[idx] != now) {
-                // slot belongs to an older second — reset it
-                bucketRequests[idx] = 0;
-                bucketErrors[idx] = 0;
-                bucketLatency[idx] = 0.0;
-                bucketMaxLatency[idx] = 0.0;
-                bucketEpoch[idx] = now;
-            }
-            bucketRequests[idx]++;
-            bucketLatency[idx] += latencyMs;
-            if (latencyMs > bucketMaxLatency[idx]) {
-                bucketMaxLatency[idx] = latencyMs;
-            }
-            if (isError) {
-                bucketErrors[idx]++;
-            }
+        long second = eventTime.getEpochSecond();
+        synchronized (lock) {
+            addToSecond(second, latencyMs, isError);
         }
         this.lastSeenAt = Instant.now();
         this.lastTrafficAt = Instant.now();
@@ -191,16 +191,56 @@ public class Edge {
 
     // ---- helpers ----
 
-    private static long epochSecond() {
-        return System.currentTimeMillis() / 1000;
+    // Adds a request to the bucket for its event-time second, keeping only the two
+    // most recent adjacent seconds. A newer second pushes "current" down into the
+    // now-complete "previous"; same-second events accumulate; events older than
+    // "previous" are dropped (rare late spans). Must hold {@code lock}.
+    private void addToSecond(long second, double latencyMs, boolean isError) {
+        if (second > currentSecond) {
+            previousSecond = currentSecond;
+            previousRequests = currentRequests;
+            previousErrors = currentErrors;
+            previousLatencySum = currentLatencySum;
+            previousMaxLatency = currentMaxLatency;
+            currentSecond = second;
+            currentRequests = 0;
+            currentErrors = 0;
+            currentLatencySum = 0.0;
+            currentMaxLatency = 0.0;
+            accumulateCurrent(latencyMs, isError);
+        } else if (second == currentSecond) {
+            accumulateCurrent(latencyMs, isError);
+        } else if (second == previousSecond) {
+            previousRequests++;
+            previousLatencySum += latencyMs;
+            if (latencyMs > previousMaxLatency) {
+                previousMaxLatency = latencyMs;
+            }
+            if (isError) {
+                previousErrors++;
+            }
+        }
+        // else: older than "previous" → dropped
     }
 
-    private static long epochSecond(Instant instant) {
-        return instant.getEpochSecond();
+    private void accumulateCurrent(double latencyMs, boolean isError) {
+        currentRequests++;
+        currentLatencySum += latencyMs;
+        if (latencyMs > currentMaxLatency) {
+            currentMaxLatency = latencyMs;
+        }
+        if (isError) {
+            currentErrors++;
+        }
     }
 
-    private static int bucketIndex(long epochSec) {
-        return (int) (epochSec % WINDOW_SECONDS);
+    // True when no traffic has been seen recently enough to report a live rate.
+    // Must hold {@code lock}.
+    private boolean isStale(Instant snapshotTime, long holdSeconds) {
+        if (currentSecond == Long.MIN_VALUE) {
+            return true;
+        }
+        return snapshotTime.getEpochSecond() - currentSecond > holdSeconds;
     }
 
     @Override

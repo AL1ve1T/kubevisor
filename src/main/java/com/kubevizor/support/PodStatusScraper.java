@@ -91,7 +91,7 @@ public class PodStatusScraper {
         }
     }
 
-    @Scheduled(fixedDelayString = "${kubevizor.pod-status-scrape-interval-seconds:15}000")
+    @Scheduled(fixedDelayString = "${kubevizor.pod-status-scrape-interval-seconds:5}000")
     public void scrape() {
         // Collect the namespaces currently tracked in the graph.
         Set<String> namespaces = graphStateManager.getNodes().values().stream()
@@ -181,6 +181,7 @@ public class PodStatusScraper {
         // GraphStateManager keeps per-pod health and derives the workload-level
         // roll-up (worst-case phase, highest restart count) from its pods.
         int podCount = 0;
+        Set<String> livePodNames = new java.util.HashSet<>();
         for (Map<String, Object> pod : items) {
             Map<String, Object> metadata = getMap(pod, "metadata");
             String podName = getString(metadata, "name");
@@ -198,8 +199,14 @@ public class PodStatusScraper {
 
             graphStateManager.updateNodePodStatus(
                     workloadName, namespace, podName, phase, restarts, lastRestartAt, lastRestartReason);
+            livePodNames.add(podName);
             podCount++;
         }
+
+        // The pod list is authoritative: drop any replica the graph still holds
+        // for this namespace that the API no longer reports (deleted/terminated),
+        // so a pod going down is reflected within one scrape interval.
+        graphStateManager.reconcileNamespacePods(namespace, livePodNames);
 
         log.debug("PodStatusScraper: scraped {} pod(s) in namespace={}", podCount, namespace);
     }

@@ -66,7 +66,7 @@ publishing run on scheduled cadences).
 4. `SpanNormalizer` uses `TopologyResolver` (client spans resolve the **target**;
    server spans resolve the **caller**) to build a directed edge.
 5. `GraphStateManager.registerEdge` creates skeleton nodes/edges;
-   `recordTraffic` records latency/error into the edge's sliding window.
+   `recordTraffic` records latency/error into the edge's current-second accumulator.
 6. The controller calls `GraphUpdatePublisher.notifyIfChanged()` to push SSE updates.
 
 ### Metrics path (`POST /v1/metrics`)
@@ -89,8 +89,16 @@ The metrics endpoint multiplexes two metric families:
 
 - **In-memory state** lives in `GraphStateManager` as two `ConcurrentHashMap`s
   (`nodes`, `edges`). A `dirty` `AtomicBoolean` lets the publisher detect changes.
-- **Per-edge metrics** use a lock-guarded 60-second ring buffer in `Edge`
-  (one bucket per second). Windowed metrics fade to zero within 60s once traffic stops.
+- **Per-edge metrics** are **instantaneous per-second** values in `Edge`,
+  bucketed by **span event time** (not arrival time): a lock-guarded pair of
+  adjacent one-second accumulators (current + previous) reports the most recently
+  **completed** second. Event-time bucketing spreads each ~5 s export batch back
+  across the real seconds in which requests happened, and the last value is
+  **held** between batches, decaying to zero only after no traffic for
+  `traffic-hold-seconds` (default 10 s, configurable) — together these keep the
+  load reading stable instead of flickering on and off between flushes. (Lower
+  `traffic-hold-seconds` to make load fade out sooner after traffic stops; it
+  must stay above the telemetry export interval to avoid flicker.)
 - **Snapshots are namespace-scoped**: `buildSnapshots()` groups edges by the target
   node's namespace and emits one `GraphSnapshot` per namespace. Cross-namespace and
   external traffic collapse into synthetic `internal` / `external` source nodes so

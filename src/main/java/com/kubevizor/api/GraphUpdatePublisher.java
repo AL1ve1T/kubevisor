@@ -79,7 +79,7 @@ public class GraphUpdatePublisher {
 
     /**
      * Persists the current graph on a fixed cadence so historical replay samples
-     * edge-window decay continuously, even when no new telemetry arrives.
+     * per-second edge metrics continuously, even when no new telemetry arrives.
      */
     @Scheduled(fixedRateString = "${kubevizor.snapshot-persist-interval-millis:1000}")
     public void persistCurrentSnapshots() {

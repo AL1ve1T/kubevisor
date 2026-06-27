@@ -45,13 +45,62 @@ stages that matter most:
 - `normalization/SpanNormalizerTest` — span → `InteractionEvent`, direction resolution.
 - `topology/TopologyResolverTest`, `topology/KubernetesPodWatcherTest` — target resolution, pod watching.
 - `ingestion/NetworkFlowProcessorTest`, `ingestion/ResourceMetricsProcessorTest` — Beyla flows, kubeletstats metrics.
-- `aggregation/GraphStateManagerTest`, `model/EdgeWindowTest` — rolling aggregation and the 60s window.
+- `aggregation/GraphStateManagerTest`, `model/EdgeWindowTest` — rolling aggregation and per-second edge metrics.
 - `cleanup/StaleGraphCleanerTest` — stale node/edge removal.
 - `api/GraphUpdatePublisherTest` — SSE publishing.
 - `persistence/*TimelineServiceTest`, `persistence/SnapshotPersistenceServiceTest` — history/timeline reconstruction.
 - `support/PodStatusScraperTest` — pod health scraping.
 
 When you add behavior, add or update the matching unit test in the same package.
+
+## Trust test: verifying reported RPS against real load
+
+To prove the live graph reports *real* traffic (not a synthetic or stale number),
+`scripts/trust/rps-load-check.sh` drives a known, sustained request rate at the
+demo services on a live Minikube stack and asserts the backend reports it back.
+
+It generates **exactly `RPS` requests/second** per service, waits for the
+telemetry to propagate, then reads `GET /api/graph` and checks that each
+service's reported inbound RPS matches the generated rate within a tolerance.
+Because `requestsPerSecond` is the number of requests observed in a single
+completed second — bucketed by **span event time**, so a batch of spans is
+spread back across the real seconds it covers — a faithful backend can only
+report the rate that was actually driven.
+
+> **Export lag matters.** The telemetry path batches spans (the service SDK's
+> `BatchSpanProcessor` and the collector `batch` processor flush in chunks every
+> ~15–25s), so a freshly started load takes a batch interval to show up. Once
+> spans arrive they are bucketed by event time, so each completed second reports
+> its true per-second count, and that value is **held** between batches (decaying
+> to zero only after ~10s without traffic) instead of flickering off between
+> flushes. `WINDOW_FILL` defaults to 30s so sampling happens after the first
+> batch has propagated and load has been sustained; sampling earlier under-reports
+> (you'll see e.g. ~6 rps mid-climb for a real 10 rps load).
+
+```bash
+# Defaults: 10 req/s x 3 services, ~75s, auto kubectl port-forward.
+scripts/trust/rps-load-check.sh
+
+# Common overrides:
+RPS=10 NAMESPACE=demo REQUEST_PATH=/health \
+  SERVICES="auth-service=auth-service:8080 order-service=order-service:8080 ticket-service=ticket-service:8080" \
+  scripts/trust/rps-load-check.sh
+
+# Ignore service-to-service cascades; count only externally driven traffic:
+SOURCE_FILTER=external scripts/trust/rps-load-check.sh
+
+# POST endpoint with a JSON body (e.g. auth-service login on :8081):
+AUTO_PORT_FORWARD=false REQUEST_METHOD=POST REQUEST_PATH=/auth/login \
+  REQUEST_BODY='{"username":"demo","password":"demo"}' \
+  SERVICES="auth-service=localhost:8081" \
+  scripts/trust/rps-load-check.sh
+```
+
+Key env vars: `RPS`, `DURATION`, `WINDOW_FILL`, `SAMPLES`, `TOLERANCE`,
+`NAMESPACE`, `BACKEND_URL`, `REQUEST_METHOD`, `REQUEST_PATH`, `REQUEST_BODY`,
+`REQUEST_CONTENT_TYPE`, `SERVICES`, `SOURCE_FILTER`, `AUTO_PORT_FORWARD`. The
+script exits non-zero if any service's reported RPS deviates beyond `TOLERANCE`.
+Requires `curl`, `jq`, `awk` (and `kubectl` when `AUTO_PORT_FORWARD=true`).
 
 ## Feeding telemetry locally
 

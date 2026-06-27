@@ -29,9 +29,10 @@ Flyway migration SQL runs unchanged in both environments.
 | `mem-high-threshold` | `0.75` | Memory ratio for `HIGH`. |
 | `mem-critical-threshold` | `0.90` | Memory ratio for `CRITICAL`. |
 | `memory-limit-bytes` | `536870912` (512 MiB) | Per-container memory limit used to convert `*.memory.working_set` bytes to a `[0,1]` ratio (Minikube does not emit limit-utilization metrics). Set this to match your workload pod memory limit. |
-| `pod-status-scrape-interval-seconds` | `15` | How often `PodStatusScraper` polls the Kubernetes pod API. |
-| `snapshot-persist-interval-millis` | `1000` | How often the current graph is persisted **and** pushed to SSE clients (so window decay is sampled continuously). |
-| `resource-metric-stale-seconds` | `30` | How long CPU/memory samples remain valid without a fresh kubeletstats update; afterward utilization and `loadLevel` fall back to calm/zero. |
+| `pod-status-scrape-interval-seconds` | `5` | How often `PodStatusScraper` polls the Kubernetes pod API; also bounds how quickly a pod going down is reflected in the graph. |
+| `snapshot-persist-interval-millis` | `1000` | How often the current graph is persisted **and** pushed to SSE clients (matches the one-second cadence of edge metrics). |
+| `resource-metric-stale-seconds` | `45` | How long CPU/memory samples remain valid without a fresh kubeletstats update; afterward utilization and `loadLevel` fall back to calm/zero. Keep it above the kubeletstats scrape interval (~15s) with margin for a late scrape, or node CPU/RAM momentarily drop to zero between samples. |
+| `traffic-hold-seconds` | `10` | How long an edge keeps showing its last per-second value after the most recent observed traffic before it decays to zero. Keep it above the telemetry export interval (demo SDK batch flush ~5s + collector batch ~1s) to avoid flicker; lower it to make edge load fade out sooner after a load test stops. |
 
 > `LoadLevel` is `CRITICAL` if CPU **or** memory crosses its critical threshold,
 > then `HIGH`, then `ELEVATED`, else `NORMAL`. See [domain-model.md](domain-model.md).

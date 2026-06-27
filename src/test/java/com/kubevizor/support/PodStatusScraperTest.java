@@ -319,4 +319,55 @@ class PodStatusScraperTest {
     assertEquals(PodPhase.CRASH_LOOP, node.getPods().get("ticket-service-abc12-rep02").getPodPhase());
     assertEquals(2, node.getPodCount());
   }
+
+  @Test
+  void processPodList_dropsPodThatVanishesFromTheScrape() throws Exception {
+    String twoReplicas = """
+        {
+          "items": [
+            {
+              "metadata": { "name": "ticket-service-abc12-rep01", "labels": { "app": "ticket-service" } },
+              "status": {
+                "phase": "Running",
+                "conditions": [{ "type": "Ready", "status": "True" }],
+                "containerStatuses": [{ "ready": true, "restartCount": 0, "state": {} }]
+              }
+            },
+            {
+              "metadata": { "name": "ticket-service-abc12-rep02", "labels": { "app": "ticket-service" } },
+              "status": {
+                "phase": "Running",
+                "conditions": [{ "type": "Ready", "status": "True" }],
+                "containerStatuses": [{ "ready": true, "restartCount": 0, "state": {} }]
+              }
+            }
+          ]
+        }
+        """;
+    scraper.processPodList("default", twoReplicas);
+    assertEquals(2, manager.getNodes().get("ticket-service").getPods().size());
+
+    // rep02 is deleted: the next scrape no longer lists it. It must be dropped
+    // immediately rather than lingering with its last healthy phase.
+    String oneReplica = """
+        {
+          "items": [
+            {
+              "metadata": { "name": "ticket-service-abc12-rep01", "labels": { "app": "ticket-service" } },
+              "status": {
+                "phase": "Running",
+                "conditions": [{ "type": "Ready", "status": "True" }],
+                "containerStatuses": [{ "ready": true, "restartCount": 0, "state": {} }]
+              }
+            }
+          ]
+        }
+        """;
+    scraper.processPodList("default", oneReplica);
+
+    Node node = manager.getNodes().get("ticket-service");
+    assertEquals(1, node.getPods().size(), "deleted replica should be removed");
+    assertTrue(node.getPods().containsKey("ticket-service-abc12-rep01"));
+    assertEquals(1, node.getPodCount());
+  }
 }

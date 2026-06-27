@@ -60,13 +60,21 @@ class GraphStateManagerTest {
                 "order-service", "demo",
                 "ticket-service", "demo",
                 NodeType.SERVICE, "HTTP",
-                45.0, false, Instant.now());
+                45.0, false, Instant.ofEpochSecond(1000));
+        InteractionEvent later = new InteractionEvent(
+                "t2", "s2",
+                "order-service", "demo",
+                "ticket-service", "demo",
+                NodeType.SERVICE, "HTTP",
+                90.0, false, Instant.ofEpochSecond(1001));
 
         manager.registerEdge(event);
         manager.recordTraffic(event);
+        manager.recordTraffic(later); // completes event-second 1000
 
         var edge = manager.getEdges().get("order-service->ticket-service");
-        assertEquals(45.0, edge.getAverageLatencyMs(), 0.001);
+        // Reported metric is the completed second 1000 (the 45ms request).
+        assertEquals(45.0, edge.getAverageLatencyMs(Instant.ofEpochSecond(1001)), 0.001);
     }
 
     @Test
@@ -91,18 +99,24 @@ class GraphStateManagerTest {
     void applyEvent_multipleEvents_aggregatesMetrics() {
         InteractionEvent event1 = new InteractionEvent(
                 "t1", "s1", "svc-a", "ns", "svc-b", "ns",
-                NodeType.SERVICE, "HTTP", 50.0, false, Instant.now());
+                NodeType.SERVICE, "HTTP", 50.0, false, Instant.ofEpochSecond(1000));
         InteractionEvent event2 = new InteractionEvent(
                 "t2", "s2", "svc-a", "ns", "svc-b", "ns",
-                NodeType.SERVICE, "HTTP", 100.0, true, Instant.now());
+                NodeType.SERVICE, "HTTP", 100.0, true, Instant.ofEpochSecond(1000));
+        InteractionEvent later = new InteractionEvent(
+                "t3", "s3", "svc-a", "ns", "svc-b", "ns",
+                NodeType.SERVICE, "HTTP", 10.0, false, Instant.ofEpochSecond(1001));
 
         manager.applyEvent(event1);
         manager.applyEvent(event2);
+        manager.applyEvent(later); // completes event-second 1000
 
         var edge = manager.getEdges().get("svc-a->svc-b");
+        // Completed second 1000 aggregates event1 + event2.
+        Instant read = Instant.ofEpochSecond(1001);
         assertEquals(1, edge.getErrorCount());
-        assertEquals(75.0, edge.getAverageLatencyMs(), 0.001);
-        assertEquals(0.5, edge.getErrorRate(), 0.001);
+        assertEquals(75.0, edge.getAverageLatencyMs(read), 0.001);
+        assertEquals(0.5, edge.getErrorRate(read), 0.001);
     }
 
     @Test
@@ -144,15 +158,15 @@ class GraphStateManagerTest {
     }
 
     @Test
-    void buildSnapshots_keepsRestartStateWhenTrafficWindowHasDecayed() throws Exception {
+    void buildSnapshots_keepsRestartStateWhenTrafficHasDecayed() throws Exception {
         manager.applyEvent(new InteractionEvent(
                 "t1", "s1", "auth-service", "default", "order-service", "default",
                 NodeType.SERVICE, "HTTP", 10.0, false, Instant.now()));
         manager.updateNodePodStatus("auth-service", "default", "auth-service-abc12-pod0", PodPhase.NOT_READY,
                 115, Instant.parse("2026-06-20T23:18:11Z"), "Error");
 
-        ageEdgeWindowOutOfRange("auth-service->order-service");
-
+        // The just-recorded second is still in progress, so per-second traffic
+        // reads as zero. Restart state must survive that decay.
         GraphSnapshot snapshot = manager.buildSnapshot("default");
         GraphSnapshot.EdgeDto edge = snapshot.edges().getFirst();
         GraphSnapshot.NodeDto authNode = snapshot.nodes().stream()
@@ -230,17 +244,37 @@ class GraphStateManagerTest {
         assertEquals(0.0, node.getCpuUtilization(), 0.001);
     }
 
-    private void ageEdgeWindowOutOfRange(String edgeId) throws Exception {
-        var edge = manager.getEdges().get(edgeId);
-        Field bucketEpochField = edge.getClass().getDeclaredField("bucketEpoch");
-        bucketEpochField.setAccessible(true);
-        long[] bucketEpoch = (long[]) bucketEpochField.get(edge);
-        long expiredSecond = Instant.now().minusSeconds(61).getEpochSecond();
-        for (int i = 0; i < bucketEpoch.length; i++) {
-            if (bucketEpoch[i] != 0) {
-                bucketEpoch[i] = expiredSecond;
-            }
-        }
+    @Test
+    void reconcileNamespacePods_dropsVanishedPodsAndRefreshesRollup() {
+        manager.updateNodePodStatus("order-service", "default", "order-service-rep01",
+                PodPhase.RUNNING, 0, null, null);
+        manager.updateNodePodStatus("order-service", "default", "order-service-rep02",
+                PodPhase.RUNNING, 0, null, null);
+        assertEquals(2, manager.getNodes().get("order-service").getPods().size());
+
+        // The authoritative scrape only reports rep01 — rep02 has been deleted.
+        manager.reconcileNamespacePods("default", java.util.Set.of("order-service-rep01"));
+        assertEquals(1, manager.getNodes().get("order-service").getPods().size());
+        assertTrue(manager.getNodes().get("order-service").getPods().containsKey("order-service-rep01"));
+
+        // An empty scrape means the workload has no live pods left → roll-up resets.
+        manager.reconcileNamespacePods("default", java.util.Set.of());
+        var node = manager.getNodes().get("order-service");
+        assertEquals(0, node.getPods().size());
+        assertEquals(PodPhase.UNKNOWN, node.getPodPhase());
+    }
+
+    @Test
+    void reconcileNamespacePods_leavesOtherNamespacesUntouched() {
+        manager.updateNodePodStatus("order-service", "default", "order-service-rep01",
+                PodPhase.RUNNING, 0, null, null);
+        manager.updateNodePodStatus("billing-service", "payments", "billing-service-rep01",
+                PodPhase.RUNNING, 0, null, null);
+
+        // Reconciling 'default' with an empty list must not affect the 'payments' namespace.
+        manager.reconcileNamespacePods("default", java.util.Set.of());
+        assertEquals(0, manager.getNodes().get("order-service").getPods().size());
+        assertEquals(1, manager.getNodes().get("billing-service").getPods().size());
     }
 
     private void ageNodeResourceMetrics(GraphStateManager graphStateManager, String nodeId, Instant staleAt)

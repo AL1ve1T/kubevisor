@@ -8,93 +8,140 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class EdgeWindowTest {
 
+    private static final double EPS = 0.001;
+
+    private static Instant sec(long second) {
+        return Instant.ofEpochSecond(second);
+    }
+
     @Test
-    void freshEdge_allWindowedMetricsAreZero() {
+    void freshEdge_allMetricsAreZero() {
         Edge edge = new Edge("src", "dst", "HTTP");
 
-        assertEquals(0.0, edge.getRequestsPerSecond(), 0.001);
-        assertEquals(0.0, edge.getAverageLatencyMs(), 0.001);
-        assertEquals(0.0, edge.getErrorRate(), 0.001);
-        assertEquals(0.0, edge.getMaxLatencyMs(), 0.001);
+        assertEquals(0.0, edge.getRequestsPerSecond(), EPS);
+        assertEquals(0.0, edge.getAverageLatencyMs(), EPS);
+        assertEquals(0.0, edge.getErrorRate(), EPS);
+        assertEquals(0.0, edge.getMaxLatencyMs(), EPS);
         assertEquals(0L, edge.getErrorCount());
     }
 
     @Test
-    void recordRequest_windowedMetricsReflectCurrentSecond() {
+    void reportsTheLastCompletedSecond() {
         Edge edge = new Edge("src", "dst", "HTTP");
-        edge.recordRequest(100.0, false);
-        edge.recordRequest(200.0, true);
+        // Two requests in event-second 1000.
+        edge.recordRequest(sec(1000), 100.0, false);
+        edge.recordRequest(sec(1000), 200.0, true);
+        // A later second arrives, completing second 1000 (it becomes "previous").
+        edge.recordRequest(sec(1001), 50.0, false);
 
-        // Lifetime counter
+        Instant read = sec(1001); // within the hold window
+        assertEquals(2.0, edge.getRequestsPerSecond(read), EPS);
+        assertEquals(150.0, edge.getAverageLatencyMs(read), EPS);
+        assertEquals(0.5, edge.getErrorRate(read), EPS);
+        assertEquals(200.0, edge.getMaxLatencyMs(read), EPS);
         assertEquals(1L, edge.getErrorCount());
-
-        // Windowed averages — both requests land in the same second bucket
-        assertEquals(150.0, edge.getAverageLatencyMs(), 0.001);
-        assertEquals(0.5, edge.getErrorRate(), 0.001);
-        // RPS = 2 requests spread over 60-second window
-        assertEquals(2.0 / 60.0, edge.getRequestsPerSecond(), 0.001);
     }
 
     @Test
-    void maxLatencyMs_returnsMaxWithinWindow() {
-        Edge edge = new Edge("src", "dst", "HTTP");
-        edge.recordRequest(50.0, false);
-        edge.recordRequest(300.0, false);
-        edge.recordRequest(10.0, false);
-
-        assertEquals(300.0, edge.getMaxLatencyMs(), 0.001);
-    }
-
-    @Test
-    void lifetimeErrorCounter_increasesMonotonically() {
+    void requestsPerSecond_isAPlainCountNotAnAverage() {
         Edge edge = new Edge("src", "dst", "HTTP");
         for (int i = 0; i < 10; i++) {
-            edge.recordRequest(10.0, i % 3 == 0);
+            edge.recordRequest(sec(500), 20.0, false);
         }
+        edge.recordRequest(sec(501), 20.0, false); // completes second 500
 
+        assertEquals(10.0, edge.getRequestsPerSecond(sec(501)), EPS);
+    }
+
+    @Test
+    void batchedArrivalsAreSpreadByEventTime() {
+        // 30 spans delivered together but carrying three different event-seconds,
+        // representing a steady 10 req/s. The reported rate must be ~10, NOT 30 —
+        // this is the regression guard for the batch-arrival flicker/spike.
+        Edge edge = new Edge("src", "dst", "HTTP");
+        for (long second = 7000; second <= 7002; second++) {
+            for (int i = 0; i < 10; i++) {
+                edge.recordRequest(sec(second), 10.0, false);
+            }
+        }
+        // Latest is 7002; the completed second reported is 7001 with 10 requests.
+        assertEquals(10.0, edge.getRequestsPerSecond(sec(7002)), EPS);
+    }
+
+    @Test
+    void holdsLastValueBetweenExportBatches() {
+        Edge edge = new Edge("src", "dst", "HTTP");
+        edge.recordRequest(sec(2000), 10.0, false);
+        edge.recordRequest(sec(2000), 10.0, false);
+        edge.recordRequest(sec(2000), 10.0, false);
+        edge.recordRequest(sec(2001), 10.0, false); // completes second 2000
+
+        // The reported value holds steady across several read ticks while no new
+        // batch arrives — it does not blink to zero between batches.
+        assertEquals(3.0, edge.getRequestsPerSecond(sec(2001)), EPS);
+        assertEquals(3.0, edge.getRequestsPerSecond(sec(2005)), EPS);
+        assertEquals(3.0, edge.getRequestsPerSecond(sec(2009)), EPS);
+    }
+
+    @Test
+    void metricsDecayToZeroWhenTrafficStops() {
+        Edge edge = new Edge("src", "dst", "HTTP");
+        edge.recordRequest(sec(3000), 10.0, false);
+        edge.recordRequest(sec(3001), 10.0, false); // latest second = 3001
+
+        // Reading more than the hold window past the newest traffic → zero.
+        Instant later = sec(3001 + 11);
+        assertEquals(0.0, edge.getRequestsPerSecond(later), EPS);
+        assertEquals(0.0, edge.getAverageLatencyMs(later), EPS);
+        assertEquals(0.0, edge.getErrorRate(later), EPS);
+        assertEquals(0.0, edge.getMaxLatencyMs(later), EPS);
+    }
+
+    @Test
+    void customHoldSecondsControlsHowSoonLoadDecays() {
+        Edge edge = new Edge("src", "dst", "HTTP");
+        edge.recordRequest(sec(5000), 10.0, false);
+        edge.recordRequest(sec(5001), 10.0, false); // latest second = 5001
+
+        // A short 3s hold: still lit 3s after the newest traffic, zero just past it.
+        assertEquals(1.0, edge.getRequestsPerSecond(sec(5004), 3), EPS);
+        assertEquals(0.0, edge.getRequestsPerSecond(sec(5005), 3), EPS);
+
+        // A longer 20s hold keeps the same value lit well beyond the default window.
+        assertEquals(1.0, edge.getRequestsPerSecond(sec(5001 + 15), 20), EPS);
+    }
+
+    @Test
+    void maxLatencyMs_returnsMaxWithinTheReportedSecond() {
+        Edge edge = new Edge("src", "dst", "HTTP");
+        edge.recordRequest(sec(4000), 50.0, false);
+        edge.recordRequest(sec(4000), 300.0, false);
+        edge.recordRequest(sec(4000), 10.0, false);
+        edge.recordRequest(sec(4001), 1.0, false); // completes second 4000
+
+        assertEquals(300.0, edge.getMaxLatencyMs(sec(4001)), EPS);
+    }
+
+    @Test
+    void lifetimeErrorCounter_increasesMonotonicallyAcrossSeconds() {
+        Edge edge = new Edge("src", "dst", "HTTP");
+        for (int i = 0; i < 10; i++) {
+            edge.recordRequest(sec(5000 + i), 10.0, i % 3 == 0);
+        }
         // errors at i = 0, 3, 6, 9 → 4 errors
         assertEquals(4L, edge.getErrorCount());
     }
 
     @Test
-    void requestsPerSecond_isZeroWhenNoRequestsInWindow() {
-        // Simulate an edge that was populated in second 0 but we're now reading in
-        // second 61.
-        // We do this by creating a StaleEdgeHelper that exposes the bucket
-        // manipulation.
-        // Since we can't fast-forward time, we verify the invariant by populating 60
-        // distinct
-        // bucket slots manually via reflection and confirming the sum excludes them.
-        // Instead, verify at minimum: a new edge with no requests always returns 0 RPS.
+    void errorRate_isPerSecondNotLifetime() {
         Edge edge = new Edge("src", "dst", "HTTP");
-        assertEquals(0.0, edge.getRequestsPerSecond(), 0.001);
-        assertEquals(0.0, edge.getAverageLatencyMs(), 0.001);
-        assertEquals(0.0, edge.getErrorRate(), 0.001);
-    }
+        edge.recordRequest(sec(6000), 10.0, true);
+        edge.recordRequest(sec(6000), 10.0, false);
+        edge.recordRequest(sec(6000), 10.0, true);
+        edge.recordRequest(sec(6000), 10.0, false);
+        edge.recordRequest(sec(6001), 10.0, false); // completes second 6000
 
-    @Test
-    void multipleRequestsSameSecond_aggregatedInOneBucket() {
-        Edge edge = new Edge("src", "dst", "HTTP");
-        edge.recordRequest(40.0, false);
-        edge.recordRequest(60.0, false);
-        edge.recordRequest(50.0, false);
-
-        // Average across all three in the same bucket
-        assertEquals(50.0, edge.getAverageLatencyMs(), 0.001);
-        assertEquals(0.0, edge.getErrorRate(), 0.001);
-    }
-
-    @Test
-    void errorRate_isWindowBasedNotLifetime() {
-        Edge edge = new Edge("src", "dst", "HTTP");
-        // Record 4 requests, 2 errors — all in current second
-        edge.recordRequest(10.0, true);
-        edge.recordRequest(10.0, false);
-        edge.recordRequest(10.0, true);
-        edge.recordRequest(10.0, false);
-
-        assertEquals(0.5, edge.getErrorRate(), 0.001);
-        // Lifetime error count also correct
+        assertEquals(0.5, edge.getErrorRate(sec(6001)), EPS);
         assertEquals(2L, edge.getErrorCount());
     }
 
@@ -103,19 +150,6 @@ class EdgeWindowTest {
         Edge edge = new Edge("src", "dst", "HTTP");
         edge.touch();
 
-        assertEquals(0.0, edge.getRequestsPerSecond(), 0.001);
-    }
-
-    @Test
-    void explicitSnapshotTime_matchesCurrentWindowedMetrics() {
-        Edge edge = new Edge("src", "dst", "HTTP");
-        edge.recordRequest(100.0, false);
-        edge.recordRequest(200.0, true);
-        Instant snapshotTime = Instant.now();
-
-        assertEquals(edge.getRequestsPerSecond(snapshotTime), edge.getRequestsPerSecond(), 0.001);
-        assertEquals(edge.getAverageLatencyMs(snapshotTime), edge.getAverageLatencyMs(), 0.001);
-        assertEquals(edge.getMaxLatencyMs(snapshotTime), edge.getMaxLatencyMs(), 0.001);
-        assertEquals(edge.getErrorRate(snapshotTime), edge.getErrorRate(), 0.001);
+        assertEquals(0.0, edge.getRequestsPerSecond(), EPS);
     }
 }

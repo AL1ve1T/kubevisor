@@ -52,7 +52,7 @@ public record GraphSnapshot(
                                         "HTTP", "postgresql", "redis", "mysql", "mongodb", "kafka", "amqp", "cassandra",
                                         "elasticsearch",
                                         "TCP" }) String protocol,
-                        @Schema(description = "Rolling requests-per-second rate computed over the current sliding window.", example = "12.5") double requestsPerSecond,
+                        @Schema(description = "Requests-per-second observed during the last completed one-second interval.", example = "12.5") double requestsPerSecond,
                         @Schema(description = "Average request latency in milliseconds over all observed requests.", example = "45.0") double averageLatencyMs,
                         @Schema(description = "Maximum observed request latency in milliseconds.", example = "320.0") double maxLatencyMs,
                         @Schema(description = "Total number of error responses observed.") long errorCount,

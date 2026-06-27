@@ -1,5 +1,6 @@
 package com.kubevizor.support;
 
+import com.kubevizor.model.Edge;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -32,13 +33,23 @@ public class KubevizorProperties {
     private long memoryLimitBytes = 512L * 1024 * 1024;
 
     // How often to scrape pod status from the Kubernetes API (in seconds).
-    private int podStatusScrapeIntervalSeconds = 15;
+    private int podStatusScrapeIntervalSeconds = 5;
 
     // How often to persist graph snapshots for history replay (in milliseconds).
     private long snapshotPersistIntervalMillis = 1000;
 
     // How long resource metrics remain valid without a fresh kubeletstats sample.
-    private long resourceMetricStaleSeconds = 30;
+    // The kubeletstats receiver scrapes every ~15s, so this must comfortably
+    // exceed that interval (with margin for a late/skipped scrape) or CPU/RAM
+    // momentarily drop to zero between samples.
+    private long resourceMetricStaleSeconds = 45;
+
+    // How long an edge keeps reporting its last per-second value after the newest
+    // observed traffic, before it decays to zero. Must exceed the telemetry export
+    // interval (demo SDK batch + collector flush) so steady traffic does not
+    // flicker between batches; lower it to make load fade out sooner after a test
+    // stops (at the risk of flicker if it drops below the export interval).
+    private long trafficHoldSeconds = Edge.DEFAULT_TRAFFIC_HOLD_SECONDS;
 
     public long getStaleThresholdSeconds() {
         return staleThresholdSeconds;
@@ -142,5 +153,13 @@ public class KubevizorProperties {
 
     public void setResourceMetricStaleSeconds(long resourceMetricStaleSeconds) {
         this.resourceMetricStaleSeconds = resourceMetricStaleSeconds;
+    }
+
+    public long getTrafficHoldSeconds() {
+        return trafficHoldSeconds;
+    }
+
+    public void setTrafficHoldSeconds(long trafficHoldSeconds) {
+        this.trafficHoldSeconds = trafficHoldSeconds;
     }
 }

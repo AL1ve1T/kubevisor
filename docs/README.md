@@ -24,8 +24,8 @@ OTLP metrics ─┘                                              │
 - **Parses** spans and metric data points into internal records.
 - **Normalizes** spans into `InteractionEvent` objects (direction-resolved edges).
 - **Resolves** source/destination workload relationships and node types.
-- **Aggregates** rolling per-edge metrics (RPS, latency, error rate) in a
-  60-second sliding window and maintains live in-memory graph state.
+- **Aggregates** per-edge metrics (RPS, latency, error rate) as instantaneous
+  per-second values and maintains live in-memory graph state.
 - **Enriches** nodes with pod health (phase, restart count) and CPU/memory load.
 - **Publishes** per-namespace `GraphSnapshot` objects via REST and SSE.
 - **Persists** snapshots for historical replay with a rolling retention window.

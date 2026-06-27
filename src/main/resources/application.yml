@@ -40,15 +40,25 @@ kubevizor:
   # memory limit configured for your workload pods (default: 512 MiB).
   memory-limit-bytes: 536870912
   # How often to scrape pod status from the Kubernetes API (seconds).
+  # Drives how quickly a pod going down becomes visible in the graph.
   # Local dev: uses 'kubectl get pods' subprocess (inherits active kubeconfig context).
   # In-cluster: calls the Kubernetes API directly via ServiceAccount bearer token.
-  pod-status-scrape-interval-seconds: 15
+  pod-status-scrape-interval-seconds: 5
   # How often to persist graph snapshots for the history API (milliseconds).
-  # This runs even without new telemetry so edge-window decay is sampled continuously.
+  # This runs even without new telemetry so per-second edge metrics are sampled continuously.
   snapshot-persist-interval-millis: 1000
   # How long CPU/memory samples remain valid without a fresh kubeletstats update.
+  # The OTel Collector's kubeletstats receiver scrapes every ~15s, so this must
+  # comfortably exceed that interval (with margin for a late or skipped scrape
+  # under load) — otherwise node CPU/RAM momentarily drop to zero between samples.
   # After this window, node utilization and edge loadLevel fall back to calm values.
-  resource-metric-stale-seconds: 30
+  resource-metric-stale-seconds: 45
+  # How long an edge keeps showing its last per-second value after the most recent
+  # observed traffic, before it decays to zero. Must stay above the telemetry export
+  # interval (demo SDK BatchSpanProcessor flush ~5s + collector batch ~1s) so steady
+  # load does not flicker between export batches. Lower it to make edge load fade out
+  # sooner after a load test stops; raise it for smoother but longer-lingering load.
+  traffic-hold-seconds: 10
 
 management:
   endpoints:

@@ -104,7 +104,7 @@ public class GraphStateManager {
         String edgeId = event.sourceService() + "->" + event.targetService();
         Edge edge = edges.get(edgeId);
         if (edge != null) {
-            edge.recordRequest(event.latencyMs(), event.isError());
+            edge.recordRequest(event.timestamp(), event.latencyMs(), event.isError());
             dirty.set(true);
             log.debug("Recorded traffic: {} -> {} ({}ms, error={})",
                     event.sourceService(), event.targetService(), event.latencyMs(), event.isError());
@@ -182,6 +182,7 @@ public class GraphStateManager {
         allNamespaces.addAll(edgesByNamespace.keySet());
 
         Instant now = Instant.now();
+        long holdSeconds = properties.getTrafficHoldSeconds();
         List<GraphSnapshot> snapshots = new ArrayList<>();
 
         for (String ns : allNamespaces) {
@@ -214,9 +215,9 @@ public class GraphStateManager {
                         Node target = nodes.get(e.getTargetNodeId());
                         return new GraphSnapshot.EdgeDto(
                                 e.getId(), e.getSourceNodeId(), e.getTargetNodeId(),
-                                e.getProtocol(), round2(e.getRequestsPerSecond(now)),
-                                round2(e.getAverageLatencyMs(now)), round2(e.getMaxLatencyMs(now)),
-                                e.getErrorCount(), round2(e.getErrorRate(now)),
+                                e.getProtocol(), round2(e.getRequestsPerSecond(now, holdSeconds)),
+                                round2(e.getAverageLatencyMs(now, holdSeconds)), round2(e.getMaxLatencyMs(now, holdSeconds)),
+                                e.getErrorCount(), round2(e.getErrorRate(now, holdSeconds)),
                                 classifyLoad(target), e.getLastSeenAt());
                     })
                     .toList();
@@ -292,6 +293,31 @@ public class GraphStateManager {
         for (Node node : nodes.values()) {
             boolean removed = node.getPods().values()
                     .removeIf(p -> p.getLastSeenAt().isBefore(cutoff));
+            if (removed) {
+                node.setCpuUtilization(maxPodCpu(node));
+                node.setMemoryUtilization(maxPodMemory(node));
+                recomputeStatusRollup(node);
+                dirty.set(true);
+            }
+        }
+    }
+
+    /**
+     * Reconciles a namespace's pods against an authoritative scrape of the
+     * Kubernetes pod list. Any replica the graph still holds for {@code namespace}
+     * that is absent from {@code livePodNames} has been deleted/terminated, so it
+     * is dropped immediately and the workload roll-up is refreshed. This makes a
+     * pod going down visible within one scrape interval rather than waiting for
+     * the much longer stale-threshold prune (a vanished pod otherwise keeps its
+     * last healthy phase until {@link #pruneStalePods}).
+     */
+    public void reconcileNamespacePods(String namespace, java.util.Set<String> livePodNames) {
+        for (Node node : nodes.values()) {
+            if (!java.util.Objects.equals(namespace, node.getNamespace())) {
+                continue;
+            }
+            boolean removed = node.getPods().keySet()
+                    .removeIf(podName -> !livePodNames.contains(podName));
             if (removed) {
                 node.setCpuUtilization(maxPodCpu(node));
                 node.setMemoryUtilization(maxPodMemory(node));

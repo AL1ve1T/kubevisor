@@ -90,7 +90,10 @@ data:
 
     processors:
       batch:
-        timeout: 5s
+        # Flush traces/metrics to the backend at most ~1s after arrival so the live
+        # graph reflects traffic promptly. Raise timeout to batch more aggressively
+        # (less overhead, higher latency) at larger scale.
+        timeout: 1s
         send_batch_size: 1024
 
       # Add k8s metadata (namespace, pod name, deployment name) to every metric

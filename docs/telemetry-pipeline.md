@@ -121,7 +121,10 @@ These values feed the `loadLevel` classification at snapshot-build time.
 The heart of the in-memory state (see [domain-model.md](domain-model.md)):
 
 - `registerNode` / `registerEdge` create skeleton nodes/edges and set `dirty`.
-- `recordTraffic` records latency/error into the edge's 60s window.
+- `recordTraffic` records latency/error into the edge, bucketing each request by
+  its **span event time** (`InteractionEvent.timestamp`) so a ~5 s export batch is
+  spread back across the real seconds it covers; the edge reports the most recently
+  completed second and holds it between batches (see [domain-model.md](domain-model.md)).
 - `registerNetworkFlowEdge` creates topology-only edges (touch, no traffic).
 - `upgradeNodeTypeIfMoreSpecific` promotes node types when better info arrives.
 - `updateNodeCpu/MemoryUtilization` and `updateNodePodStatus` enrich nodes.
@@ -139,7 +142,15 @@ restart counts. Two modes:
 - **Local dev**: connects to the configured `kubevizor.k8s-api-url` (e.g.
   `kubectl proxy` on `http://localhost:8001`).
 
-Failures degrade gracefully (logged once at WARN, then suppressed).
+The pod list is treated as **authoritative**: after each successful scrape the
+scraper reconciles the namespace via `GraphStateManager.reconcileNamespacePods`,
+dropping any replica the graph still holds that the API no longer reports
+(deleted/terminated). This makes a pod going down visible within one scrape
+interval, instead of letting a vanished pod keep its last healthy phase until the
+much longer `stale-threshold-seconds` prune (`pruneStalePods`).
+
+Failures degrade gracefully (logged once at WARN, then suppressed); a failed
+scrape skips reconciliation so a transient API hiccup never wrongly clears pods.
 
 ## 9. Cleanup — `StaleGraphCleaner`
 
