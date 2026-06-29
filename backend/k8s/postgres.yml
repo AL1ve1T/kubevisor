@@ -1,19 +1,19 @@
 apiVersion: v1
 kind: Secret
 metadata:
-  name: kubevizor-postgres-secret
-  namespace: kubevizor
+  name: kubevisor-postgres-secret
+  namespace: kubevisor
 type: Opaque
 stringData:
-  POSTGRES_DB: kubevizor
-  POSTGRES_USER: kubevizor
-  POSTGRES_PASSWORD: kubevizor-secret
+  POSTGRES_DB: kubevisor
+  POSTGRES_USER: kubevisor
+  POSTGRES_PASSWORD: kubevisor-secret
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: kubevizor-postgres-pvc
-  namespace: kubevizor
+  name: kubevisor-postgres-pvc
+  namespace: kubevisor
 spec:
   accessModes:
     - ReadWriteOnce
@@ -24,19 +24,19 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kubevizor-postgres
-  namespace: kubevizor
+  name: kubevisor-postgres
+  namespace: kubevisor
   labels:
-    app: kubevizor-postgres
+    app: kubevisor-postgres
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: kubevizor-postgres
+      app: kubevisor-postgres
   template:
     metadata:
       labels:
-        app: kubevizor-postgres
+        app: kubevisor-postgres
     spec:
       containers:
         - name: postgres
@@ -47,18 +47,18 @@ spec:
               name: postgres
           envFrom:
             - secretRef:
-                name: kubevizor-postgres-secret
+                name: kubevisor-postgres-secret
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "kubevizor", "-d", "kubevizor"]
+              command: ["pg_isready", "-U", "kubevisor", "-d", "kubevisor"]
             initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
             exec:
-              command: ["pg_isready", "-U", "kubevizor", "-d", "kubevizor"]
+              command: ["pg_isready", "-U", "kubevisor", "-d", "kubevisor"]
             initialDelaySeconds: 15
             periodSeconds: 10
           resources:
@@ -71,19 +71,19 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: kubevizor-postgres-pvc
+            claimName: kubevisor-postgres-pvc
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: kubevizor-postgres
-  namespace: kubevizor
+  name: kubevisor-postgres
+  namespace: kubevisor
   labels:
-    app: kubevizor-postgres
+    app: kubevisor-postgres
 spec:
   type: ClusterIP
   selector:
-    app: kubevizor-postgres
+    app: kubevisor-postgres
   ports:
     - port: 5432
       targetPort: 5432

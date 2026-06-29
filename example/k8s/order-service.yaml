@@ -10,7 +10,7 @@ data:
   DB_USERNAME: postgres
   DB_PASSWORD: postgres
   OTEL_SERVICE_NAME: order-service
-  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.kubevizor.svc.cluster.local:4318
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.kubevisor.svc.cluster.local:4318
   OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
   OTEL_TRACES_SAMPLER: parentbased_always_on
   OTEL_BSP_SCHEDULE_DELAY: "1000"

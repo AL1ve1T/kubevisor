@@ -1,4 +1,4 @@
-# KubeVizor — Documentation
+# KubeVisor — Documentation
 
 Frontend for a Kubernetes observability tool. It renders **service-to-service
 communication** as a column-based topology graph, styles edges by load / latency /

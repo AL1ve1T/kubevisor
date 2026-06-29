@@ -2,20 +2,20 @@
 
 Configuration lives in `src/main/resources/application.yml` (defaults / local dev)
 and `src/main/resources/application-k8s.yml` (the `k8s` Spring profile). All custom
-properties are bound to `KubevizorProperties` under the `kubevizor.*` prefix.
+properties are bound to `KubevisorProperties` under the `kubevisor.*` prefix.
 
 ## Spring profiles
 
 | Profile | Activation | Datasource |
 | --- | --- | --- |
-| _(default)_ | local dev | **H2** file DB in PostgreSQL compatibility mode (`./data/kubevizor`), H2 console at `/h2-console` |
+| _(default)_ | local dev | **H2** file DB in PostgreSQL compatibility mode (`./data/kubevisor`), H2 console at `/h2-console` |
 | `k8s` | `SPRING_PROFILES_ACTIVE=k8s` (set in the Kubernetes Deployment) | **PostgreSQL** via `DB_*` env vars, `ddl-auto: validate` |
 
 Flyway owns the schema in both profiles, so Hibernate `ddl-auto` is `none`
 locally and `validate` in-cluster. The H2 URL uses `MODE=PostgreSQL` so the same
 Flyway migration SQL runs unchanged in both environments.
 
-## `kubevizor.*` properties
+## `kubevisor.*` properties
 
 | Property | Default | Meaning |
 | --- | --- | --- |
@@ -44,15 +44,15 @@ Consumed by `application-k8s.yml`:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SPRING_PROFILES_ACTIVE` | — | Set to `k8s` to activate the PostgreSQL profile. |
-| `DB_HOST` | `kubevizor-postgres` | PostgreSQL host. |
+| `DB_HOST` | `kubevisor-postgres` | PostgreSQL host. |
 | `DB_PORT` | `5432` | PostgreSQL port. |
-| `DB_NAME` | `kubevizor` | Database name. |
+| `DB_NAME` | `kubevisor` | Database name. |
 | `DB_USERNAME` | — | Database user (required). |
 | `DB_PASSWORD` | — | Database password (required). |
 
 `KUBERNETES_SERVICE_HOST` (injected automatically in-cluster) is used by
 `PodStatusScraper` / `KubernetesPodWatcher` to choose in-cluster vs local mode.
-In local mode they use `kubevizor.k8s-api-url` (e.g. `kubectl proxy`) or a
+In local mode they use `kubevisor.k8s-api-url` (e.g. `kubectl proxy`) or a
 `kubectl get pods` subprocess.
 
 ## Other settings
@@ -60,8 +60,8 @@ In local mode they use `kubevizor.k8s-api-url` (e.g. `kubectl proxy`) or a
 - **Actuator**: only `health` and `info` are exposed.
 - **springdoc**: API docs at `/v3/api-docs`, Swagger UI at `/swagger-ui.html`
   (tags sorted alpha, operations by method).
-- **Logging**: `com.kubevizor` at `INFO` by default.
+- **Logging**: `com.kubevisor` at `INFO` by default.
 
-When you add a new `kubevizor.*` property, add the field + getter/setter to
-`KubevizorProperties`, document it here, and set a sensible default in
+When you add a new `kubevisor.*` property, add the field + getter/setter to
+`KubevisorProperties`, document it here, and set a sensible default in
 `application.yml`.

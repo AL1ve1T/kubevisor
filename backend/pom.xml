@@ -12,10 +12,10 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.kubevizor</groupId>
-    <artifactId>kubevizor-backend</artifactId>
+    <groupId>com.kubevisor</groupId>
+    <artifactId>kubevisor-backend</artifactId>
     <version>0.1.0-SNAPSHOT</version>
-    <name>kubevizor-backend</name>
+    <name>kubevisor-backend</name>
     <description>Kubernetes observability backend - transforms OpenTelemetry traces into a live service topology model</description>
 
     <properties>

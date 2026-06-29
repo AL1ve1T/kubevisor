@@ -2,7 +2,7 @@
 
 ## System context
 
-`kubevizor.backend` runs in the **observability plane**, outside the business
+`kubevisor.backend` runs in the **observability plane**, outside the business
 request path. It integrates with two sibling repositories:
 
 - A **demo workload** (ticketing system: `auth-service`, `order-service`,
@@ -24,7 +24,7 @@ flowchart LR
         beyla --> otel
         kubelet --> otel
     end
-    otel -->|OTLP/HTTP| backend[kubevizor.backend]
+    otel -->|OTLP/HTTP| backend[kubevisor.backend]
     k8sapi[(Kubernetes API)] -->|pod status / IPs| backend
     backend -->|REST + SSE| frontend[Frontend]
     backend --> db[(PostgreSQL / H2)]
@@ -33,7 +33,7 @@ flowchart LR
 ## Package layout
 
 The codebase keeps ingestion, parsing, normalization, topology, aggregation, and
-publishing as separate packages under `com.kubevizor`.
+publishing as separate packages under `com.kubevisor`.
 
 | Package | Responsibility | Key classes |
 | --- | --- | --- |
@@ -46,9 +46,9 @@ publishing as separate packages under `com.kubevizor`.
 | `model` | Internal domain models and frontend DTOs | `Node`, `Edge`, `InteractionEvent`, `GraphSnapshot`, `PodInstance`, enums, `*Dto` |
 | `cleanup` | Remove stale nodes and edges | `StaleGraphCleaner` |
 | `persistence` | Snapshot storage, retention, and history/timeline queries | `SnapshotPersistenceService`, `GraphSnapshotRepository`, `GraphSnapshotEntity`, `SnapshotRetentionCleaner`, `RestartTimelineService`, `NodeMetricsTimelineService`, `NamespaceRequestTimelineService` |
-| `support` | Configuration, utilities, pod status scraping, OpenAPI/web config | `KubevizorProperties`, `PodStatusScraper`, `OpenApiConfig`, `WebConfig` |
+| `support` | Configuration, utilities, pod status scraping, OpenAPI/web config | `KubevisorProperties`, `PodStatusScraper`, `OpenApiConfig`, `WebConfig` |
 
-The application entry point is `KubevizorBackendApplication`. It is a standard
+The application entry point is `KubevisorBackendApplication`. It is a standard
 `@SpringBootApplication` with `@EnableScheduling` (cleanup, persistence, and
 publishing run on scheduled cadences).
 

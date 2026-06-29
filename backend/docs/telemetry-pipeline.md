@@ -112,7 +112,7 @@ Reads kubeletstats metrics and updates per-pod / per-workload utilization:
   `k8s.container.memory_limit_utilization`, `k8s.pod.memory_limit_utilization`.
 - **Memory bytes** metrics (always available): `container.memory.working_set`,
   `k8s.pod.memory.working_set` → converted to a `[0,1]` ratio by dividing by
-  `kubevizor.memory-limit-bytes` (Minikube does not emit limit-utilization metrics).
+  `kubevisor.memory-limit-bytes` (Minikube does not emit limit-utilization metrics).
 
 These values feed the `loadLevel` classification at snapshot-build time.
 
@@ -139,7 +139,7 @@ restart counts. Two modes:
 
 - **In-cluster** (detected via `KUBERNETES_SERVICE_HOST`): uses the
   ServiceAccount bearer token against `https://kubernetes.default.svc`.
-- **Local dev**: connects to the configured `kubevizor.k8s-api-url` (e.g.
+- **Local dev**: connects to the configured `kubevisor.k8s-api-url` (e.g.
   `kubectl proxy` on `http://localhost:8001`).
 
 The pod list is treated as **authoritative**: after each successful scrape the
@@ -154,7 +154,7 @@ scrape skips reconciliation so a transient API hiccup never wrongly clears pods.
 
 ## 9. Cleanup — `StaleGraphCleaner`
 
-Runs every `kubevizor.cleanup-interval-seconds`. Using a cutoff of
+Runs every `kubevisor.cleanup-interval-seconds`. Using a cutoff of
 `now - stale-threshold-seconds`:
 
 - prunes stale pod replicas (`pruneStalePods`),

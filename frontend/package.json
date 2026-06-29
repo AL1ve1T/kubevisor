@@ -1,5 +1,5 @@
 {
-    "name": "kubevizor-frontend",
+    "name": "kubevisor-frontend",
     "private": true,
     "version": "0.1.0",
     "license": "MIT",

@@ -2,7 +2,7 @@ FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
 
-COPY target/kubevizor-backend-*.jar app.jar
+COPY target/kubevisor-backend-*.jar app.jar
 
 EXPOSE 8080
 
