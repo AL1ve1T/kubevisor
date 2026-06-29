@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubevizor-backend
+  namespace: kubevizor
+  labels:
+    app: kubevizor-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubevizor-backend
+  template:
+    metadata:
+      labels:
+        app: kubevizor-backend
+    spec:
+      serviceAccountName: kubevizor-backend
+      containers:
+        - name: kubevizor-backend
+          image: kubevizor-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: SERVER_PORT
+              value: "8080"
+            - name: KUBEVIZOR_STALE_THRESHOLD_SECONDS
+              value: "120"
+            - name: SPRING_PROFILES_ACTIVE
+              value: "k8s"
+            - name: DB_HOST
+              value: "kubevizor-postgres"
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: kubevizor-postgres-secret
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kubevizor-postgres-secret
+                  key: POSTGRES_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubevizor-postgres-secret
+  namespace: kubevizor
+type: Opaque
+stringData:
+  POSTGRES_DB: kubevizor
+  POSTGRES_USER: kubevizor
+  POSTGRES_PASSWORD: kubevizor-secret
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kubevizor-postgres-pvc
+  namespace: kubevizor
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubevizor-postgres
+  namespace: kubevizor
+  labels:
+    app: kubevizor-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubevizor-postgres
+  template:
+    metadata:
+      labels:
+        app: kubevizor-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          envFrom:
+            - secretRef:
+                name: kubevizor-postgres-secret
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "kubevizor", "-d", "kubevizor"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "kubevizor", "-d", "kubevizor"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: kubevizor-postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubevizor-postgres
+  namespace: kubevizor
+  labels:
+    app: kubevizor-postgres
+spec:
+  type: ClusterIP
+  selector:
+    app: kubevizor-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubevizor-backend
+  namespace: kubevizor
+  labels:
+    app: kubevizor-backend
+spec:
+  type: ClusterIP
+  selector:
+    app: kubevizor-backend
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
