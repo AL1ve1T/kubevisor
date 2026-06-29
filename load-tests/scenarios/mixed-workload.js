@@ -83,10 +83,12 @@ function createOrder() {
         { headers, tags: { name: "create_order" } }
     );
 
-    check(orderRes, {
-        "order created 201": (r) => r.status === 201 || r.status === 200,
-        "order confirmed": (r) => r.json("status") === "CONFIRMED",
+    const orderOk = check(orderRes, {
+        "order created 201": (r) => r.status === 201,
+        "order confirmed": (r) => r.body && r.json("status") === "CONFIRMED",
     });
+
+    if (!orderOk) return;
 
     sleep(1);
 }
@@ -103,6 +105,11 @@ function readOrders() {
     check(listRes, {
         "list orders 200": (r) => r.status === 200,
     });
+
+    if (listRes.status !== 200 || !listRes.body) {
+        sleep(1);
+        return;
+    }
 
     const orders = listRes.json();
     if (!Array.isArray(orders) || orders.length === 0) {

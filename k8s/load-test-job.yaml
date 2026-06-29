@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-escalation
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: k6-escalation
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: grafana/k6:latest
+          command: ["k6", "run", "/scripts/escalation-cluster.js"]
+          env:
+            - name: AUTH_URL
+              value: "http://auth-service:8081"
+            - name: ORDER_URL
+              value: "http://order-service:8082"
+            - name: TICKET_URL
+              value: "http://ticket-service:8083"
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi
+      volumes:
+        - name: scripts
+          configMap:
+            name: k6-escalation-scripts

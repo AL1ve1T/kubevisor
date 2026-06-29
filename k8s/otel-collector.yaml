@@ -24,8 +24,10 @@ data:
     exporters:
       debug:
         verbosity: basic
-      otlp:
-        endpoint: "localhost:4317"
+      otlphttp/kubevizor_backend:
+        endpoint: "http://kubevizor-backend.kubevizor.svc.cluster.local:8080"
+        encoding: json
+        compression: none
         tls:
           insecure: true
 
@@ -35,7 +37,7 @@ data:
         traces:
           receivers: [otlp]
           processors: [batch]
-          exporters: [debug]
+          exporters: [debug, otlphttp/kubevizor_backend]
         metrics:
           receivers: [otlp]
           processors: [batch]

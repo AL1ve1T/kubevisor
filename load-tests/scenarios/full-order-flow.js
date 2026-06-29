@@ -49,9 +49,9 @@ export default function () {
     );
 
     const orderCreated = check(orderRes, {
-        "order status 201": (r) => r.status === 201 || r.status === 200,
-        "order has id": (r) => r.json("id") !== undefined,
-        "order status confirmed": (r) => r.json("status") === "CONFIRMED",
+        "order status 201": (r) => r.status === 201,
+        "order has id": (r) => r.body && r.json("id") !== undefined,
+        "order status confirmed": (r) => r.body && r.json("status") === "CONFIRMED",
     });
 
     if (!orderCreated) {
@@ -71,7 +71,7 @@ export default function () {
 
     check(getOrderRes, {
         "get order status 200": (r) => r.status === 200,
-        "order id matches": (r) => r.json("id") === orderId,
+        "order id matches": (r) => r.body && r.json("id") === orderId,
     });
 
     sleep(0.5);
@@ -84,7 +84,7 @@ export default function () {
 
     check(ticketsRes, {
         "tickets status 200": (r) => r.status === 200,
-        "correct ticket count": (r) => r.json().length === quantity,
+        "correct ticket count": (r) => r.body && r.json().length === quantity,
     });
 
     sleep(1);

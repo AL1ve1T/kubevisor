@@ -9,14 +9,15 @@ export function login(user) {
             username: user.username,
             password: user.password,
         }),
-        { headers: { "Content-Type": "application/json" }, tags: { name: "login" } }
+        { headers: { "Content-Type": "application/json" }, tags: { name: "login" }, timeout: "8s" }
     );
 
     check(res, {
         "login status 200": (r) => r.status === 200,
-        "login returns token": (r) => r.json("token") !== undefined,
+        "login returns token": (r) => r.body && r.json("token") !== undefined,
     });
 
+    if (!res.body || res.status !== 200) return null;
     return res.json("token");
 }
 

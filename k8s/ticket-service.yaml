@@ -8,7 +8,12 @@ data:
   DB_USERNAME: postgres
   DB_PASSWORD: postgres
   OTEL_SERVICE_NAME: ticket-service
-  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.kubevizor.svc.cluster.local:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_TRACES_SAMPLER: parentbased_always_on
+  OTEL_BSP_SCHEDULE_DELAY: "1000"
+  OTEL_BSP_MAX_EXPORT_BATCH_SIZE: "512"
+  OTEL_BSP_EXPORT_TIMEOUT: "5000"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -58,8 +63,10 @@ kind: Service
 metadata:
   name: ticket-service
 spec:
+  type: NodePort
   selector:
     app: ticket-service
   ports:
     - port: 8083
       targetPort: 8083
+      nodePort: 30083

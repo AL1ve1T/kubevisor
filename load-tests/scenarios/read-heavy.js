@@ -54,7 +54,7 @@ export function seedOrders() {
         { headers, tags: { name: "seed_order" } }
     );
 
-    if (res.status === 201 || res.status === 200) {
+    if (res.status === 201 && res.body) {
         orderIds.push(res.json("id"));
     }
 }
@@ -71,11 +71,16 @@ export function readWorkload() {
 
     check(listRes, {
         "list orders 200": (r) => r.status === 200,
-        "returns array": (r) => Array.isArray(r.json()),
+        "returns array": (r) => r.body && Array.isArray(r.json()),
     });
 
+    if (listRes.status !== 200 || !listRes.body) {
+        sleep(1);
+        return;
+    }
+
     const orders = listRes.json();
-    if (orders.length === 0) {
+    if (!Array.isArray(orders) || orders.length === 0) {
         sleep(1);
         return;
     }
