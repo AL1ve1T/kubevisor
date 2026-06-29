@@ -13,7 +13,7 @@ side by side as subfolders, each retaining its own history, build, and docs.
 
 | Folder | What it is | Stack |
 | --- | --- | --- |
-| [backend/](backend/) | Telemetry ingestion → normalization → topology inference → rolling aggregation → graph snapshot API (REST + SSE), with 24h persistence | Java 24, Spring Boot, Maven |
+| [backend/](backend/) | Telemetry ingestion → normalization → topology inference → rolling aggregation → graph snapshot API (REST + SSE), with 24h persistence | Java 21, Spring Boot, Maven |
 | [frontend/](frontend/) | Renders processed graph snapshots as a column-based topology graph; styles edges by load / latency / errors; scrubs through history | TypeScript, Vite, React |
 | [example/](example/) | Demo ticketing workload (auth / order / ticket services) that generates realistic service-to-service traffic and OpenTelemetry traces | Java, Spring Boot, Maven |
 
