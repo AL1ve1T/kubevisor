@@ -1,0 +1,12 @@
+**/target/classes
+**/target/generated-sources
+**/target/maven-*
+**/src
+**/pom.xml
+.idea/
+*.iml
+.vscode/
+.git/
+.gitignore
+README.md
+k8s/
