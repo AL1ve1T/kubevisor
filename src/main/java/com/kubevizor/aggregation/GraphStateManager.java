@@ -216,7 +216,8 @@ public class GraphStateManager {
                         return new GraphSnapshot.EdgeDto(
                                 e.getId(), e.getSourceNodeId(), e.getTargetNodeId(),
                                 e.getProtocol(), round2(e.getRequestsPerSecond(now, holdSeconds)),
-                                round2(e.getAverageLatencyMs(now, holdSeconds)), round2(e.getMaxLatencyMs(now, holdSeconds)),
+                                round2(e.getAverageLatencyMs(now, holdSeconds)),
+                                round2(e.getMaxLatencyMs(now, holdSeconds)),
                                 e.getErrorCount(), round2(e.getErrorRate(now, holdSeconds)),
                                 classifyLoad(target), e.getLastSeenAt());
                     })
