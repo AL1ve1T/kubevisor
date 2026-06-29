@@ -2,7 +2,7 @@ spring:
   datasource:
     url: jdbc:postgresql://${DB_HOST:postgres}:5432/ticketdb
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
+    password: ${DB_PASSWORD:changeme-local-dev}
   jpa:
     hibernate:
       ddl-auto: update

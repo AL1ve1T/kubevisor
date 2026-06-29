@@ -6,7 +6,7 @@ data:
   SPRING_PROFILES_ACTIVE: k8s
   DB_HOST: postgres
   DB_USERNAME: postgres
-  DB_PASSWORD: postgres
+  DB_PASSWORD: changeme-local-dev
   OTEL_SERVICE_NAME: ticket-service
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.kubevisor.svc.cluster.local:4318
   OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf

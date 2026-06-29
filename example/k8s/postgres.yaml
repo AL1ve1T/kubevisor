@@ -41,8 +41,9 @@ spec:
           env:
             - name: POSTGRES_USER
               value: postgres
+            # Demo-only password for local Minikube. Override before any real deployment.
             - name: POSTGRES_PASSWORD
-              value: postgres
+              value: changeme-local-dev
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data

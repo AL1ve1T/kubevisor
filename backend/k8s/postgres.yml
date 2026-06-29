@@ -7,7 +7,9 @@ type: Opaque
 stringData:
   POSTGRES_DB: kubevisor
   POSTGRES_USER: kubevisor
-  POSTGRES_PASSWORD: kubevisor-secret
+  # Demo-only password for local Minikube. Replace with a real, externally-managed
+  # Secret (e.g. sealed-secrets / external-secrets) before any non-local deployment.
+  POSTGRES_PASSWORD: changeme-local-dev
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
