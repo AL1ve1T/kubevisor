@@ -6,6 +6,13 @@ running in a cluster, infers the service topology, aggregates rolling per-edge
 metrics (request rate, latency, errors), and renders the result as an interactive
 graph in the browser.
 
+> **▶ [Try the live demo](https://al1ve1t.github.io/kubevisor/)** — runs entirely
+> in your browser, no backend needed. Pick a sample cluster or paste your own
+> `kubectl` YAML, drive the load, and watch KubeVisor render the topology and
+> surface where an outage hits.
+
+[![KubeVisor live topology demo](.github/assets/demo.gif)](https://al1ve1t.github.io/kubevisor/)
+
 This is the management repository for the whole project. The three components live
 side by side as subfolders, each retaining its own history, build, and docs.
 
