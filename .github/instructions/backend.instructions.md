@@ -1,6 +1,6 @@
 ---
 applyTo: 'backend/**'
-description: 'KubeVisor backend (Java / Spring Boot telemetry-processing) conventions'
+description: 'KubeTopo backend (Java / Spring Boot telemetry-processing) conventions'
 ---
 
 # Backend instructions
@@ -13,8 +13,8 @@ replace Jaeger/Tempo/Prometheus and does not store raw spans.
 
 ## Stack
 
-- **Java 21**, **Spring Boot 3.4.x**, **Maven** (artifact `kubevisor-backend`).
-- Main class: `KubevisorBackendApplication`. Base package: `com.kubevisor`.
+- **Java 21**, **Spring Boot 3.4.x**, **Maven** (artifact `kubetopo-backend`).
+- Main class: `KubetopoBackendApplication`. Base package: `com.kubetopo`.
 - In-memory live state + **PostgreSQL** persistence (**H2** for local dev),
   **Flyway** migrations, **OpenTelemetry** proto / protobuf for OTLP,
   **springdoc-openapi** for Swagger UI.
@@ -33,7 +33,7 @@ replace Jaeger/Tempo/Prometheus and does not store raw spans.
 
 - Prefer small, testable Spring components over large classes.
 - Build/test with `mvn test` (run from `backend/`); keep the suite green.
-- Configuration keys use the `kubevisor.*` prefix; honor Spring profiles.
+- Configuration keys use the `kubetopo.*` prefix; honor Spring profiles.
 - **Update `backend/docs/` in the same change** when you alter behavior, the
   domain model, endpoints, configuration, or infrastructure. The matching doc is:
   architecture, domain-model, telemetry-pipeline, api, configuration, deployment,

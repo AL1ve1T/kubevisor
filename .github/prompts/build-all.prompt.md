@@ -1,9 +1,9 @@
 ---
 mode: agent
-description: 'Build and test all three KubeVisor components and report results.'
+description: 'Build and test all three KubeTopo components and report results.'
 ---
 
-Build and test every component of the KubeVisor monorepo, then summarize pass/fail
+Build and test every component of the KubeTopo monorepo, then summarize pass/fail
 per component.
 
 1. Backend: run `mvn test` in `backend/`.

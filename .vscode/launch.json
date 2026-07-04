@@ -5,8 +5,8 @@
             "type": "java",
             "name": "Debug Backend",
             "request": "launch",
-            "mainClass": "com.kubevisor.KubevisorBackendApplication",
-            "projectName": "kubevisor-backend",
+            "mainClass": "com.kubetopo.KubetopoBackendApplication",
+            "projectName": "kubetopo-backend",
             "cwd": "${workspaceFolder}/backend"
         },
         {

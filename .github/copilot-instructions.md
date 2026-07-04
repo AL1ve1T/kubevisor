@@ -1,6 +1,6 @@
-# KubeVisor — Copilot instructions
+# KubeTopo — Copilot instructions
 
-KubeVisor turns OpenTelemetry traces and Kubernetes signals into a **live,
+KubeTopo turns OpenTelemetry traces and Kubernetes signals into a **live,
 understandable service-communication graph**. This is the management monorepo:
 three components live side by side, each keeping its own build, docs, and history.
 
@@ -50,8 +50,8 @@ cd example && mvn package
   - backend → `backend/docs/`
   - frontend → `frontend/docs/`
   - example → `example/README.md`
-- **Naming:** the project spelling is **kubevisor** (with an `s`). The Java base
-  package is `com.kubevisor`; the example uses `com.example`.
+- **Naming:** the project spelling is **kubetopo**. The Java base
+  package is `com.kubetopo`; the example uses `com.example`.
 - Prefer small, testable components over large classes. Use realistic domain
   naming (auth, order, ticket, node, edge, snapshot) over generic placeholders.
 

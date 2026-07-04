@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: Secret
 metadata:
-  name: kubevisor-postgres-secret
-  namespace: kubevisor
+  name: kubetopo-postgres-secret
+  namespace: kubetopo
 type: Opaque
 stringData:
-  POSTGRES_DB: kubevisor
-  POSTGRES_USER: kubevisor
+  POSTGRES_DB: kubetopo
+  POSTGRES_USER: kubetopo
   # Demo-only password for local Minikube. Replace with a real, externally-managed
   # Secret (e.g. sealed-secrets / external-secrets) before any non-local deployment.
   POSTGRES_PASSWORD: changeme-local-dev
@@ -14,8 +14,8 @@ stringData:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: kubevisor-postgres-pvc
-  namespace: kubevisor
+  name: kubetopo-postgres-pvc
+  namespace: kubetopo
 spec:
   accessModes:
     - ReadWriteOnce
@@ -26,19 +26,19 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kubevisor-postgres
-  namespace: kubevisor
+  name: kubetopo-postgres
+  namespace: kubetopo
   labels:
-    app: kubevisor-postgres
+    app: kubetopo-postgres
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: kubevisor-postgres
+      app: kubetopo-postgres
   template:
     metadata:
       labels:
-        app: kubevisor-postgres
+        app: kubetopo-postgres
     spec:
       containers:
         - name: postgres
@@ -49,18 +49,18 @@ spec:
               name: postgres
           envFrom:
             - secretRef:
-                name: kubevisor-postgres-secret
+                name: kubetopo-postgres-secret
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "kubevisor", "-d", "kubevisor"]
+              command: ["pg_isready", "-U", "kubetopo", "-d", "kubetopo"]
             initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
             exec:
-              command: ["pg_isready", "-U", "kubevisor", "-d", "kubevisor"]
+              command: ["pg_isready", "-U", "kubetopo", "-d", "kubetopo"]
             initialDelaySeconds: 15
             periodSeconds: 10
           resources:
@@ -73,19 +73,19 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: kubevisor-postgres-pvc
+            claimName: kubetopo-postgres-pvc
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: kubevisor-postgres
-  namespace: kubevisor
+  name: kubetopo-postgres
+  namespace: kubetopo
   labels:
-    app: kubevisor-postgres
+    app: kubetopo-postgres
 spec:
   type: ClusterIP
   selector:
-    app: kubevisor-postgres
+    app: kubetopo-postgres
   ports:
     - port: 5432
       targetPort: 5432

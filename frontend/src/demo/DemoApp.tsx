@@ -18,7 +18,7 @@ function sampleYaml(id: string): string {
 }
 
 /**
- * Standalone, backend-free demo of KubeVisor. The user supplies (or picks) raw
+ * Standalone, backend-free demo of KubeTopo. The user supplies (or picks) raw
  * Kubernetes manifests; the browser parses them, infers a service-communication
  * topology, and continuously synthesises backend-shaped graph snapshots under a
  * chosen load profile — all rendered through the exact same topology canvas and

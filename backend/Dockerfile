@@ -2,7 +2,7 @@ FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
 
-COPY target/kubevisor-backend-*.jar app.jar
+COPY target/kubetopo-backend-*.jar app.jar
 
 # 8080: graph API (REST + SSE) consumed by the frontend.
 # 4318: OTLP/HTTP ingestion endpoints (/v1/traces, /v1/metrics) — the standard

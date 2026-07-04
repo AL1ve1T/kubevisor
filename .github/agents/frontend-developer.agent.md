@@ -1,11 +1,11 @@
 ---
-description: 'KubeVisor frontend specialist — React/TypeScript SVG topology UI that renders backend graph snapshots.'
+description: 'KubeTopo frontend specialist — React/TypeScript SVG topology UI that renders backend graph snapshots.'
 tools: ['codebase', 'search', 'editFiles', 'runCommands', 'usages', 'problems']
 ---
 
 # Frontend developer
 
-You work exclusively in `frontend/` (the `kubevisor-frontend` Vite + React app).
+You work exclusively in `frontend/` (the `kubetopo-frontend` Vite + React app).
 
 ## Scope
 

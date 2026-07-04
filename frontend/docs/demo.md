@@ -5,7 +5,7 @@ user supplies (or picks) raw Kubernetes manifests, the browser parses them, infe
 a service-communication topology, and continuously **synthesises backend-shaped
 graph snapshots** under a chosen load profile. Everything renders through the exact
 same [topology canvas](components.md) and [timeline scrubber](components.md) as the
-live product, so the demo is a faithful preview of what KubeVisor would show for a
+live product, so the demo is a faithful preview of what KubeTopo would show for a
 user's own cluster.
 
 It exists so the project can be hosted as an open-source showcase: visitors paste
@@ -22,7 +22,7 @@ their `kubectl` YAML, dial up the load, and watch their cluster light up.
 ```bash
 npm run dev:demo                 # vite dev server in demo mode
 npm run build:demo               # tsc -b && vite build --mode demo
-npm run build:demo -- --base=/kubevisor/   # e.g. GitHub Pages project subpath
+npm run build:demo -- --base=/kubetopo/   # e.g. GitHub Pages project subpath
 ```
 
 A normal `npm run dev` / `npm run build` is unaffected and still renders the live
@@ -39,7 +39,7 @@ sub-path), then deploys with the official Pages actions.
 One-time setup: in the repository, **Settings → Pages → Build and deployment →
 Source: GitHub Actions**. The site is then served at
 `https://<owner>.github.io/<repo>/` (for this repo,
-`https://al1ve1t.github.io/kubevisor/`).
+`https://al1ve1t.github.io/kubetopo/`).
 
 ## How it works
 

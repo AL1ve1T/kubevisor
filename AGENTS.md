@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Guidance for AI coding agents (Copilot, Claude, Cursor, …) working in the
-**KubeVisor** monorepo. KubeVisor turns OpenTelemetry traces and Kubernetes
+**KubeTopo** monorepo. KubeTopo turns OpenTelemetry traces and Kubernetes
 signals into a live service-communication graph.
 
 ## Structure
@@ -39,8 +39,8 @@ cd example && mvn package
 - **Docs are part of the source of truth.** Update `backend/docs/`,
   `frontend/docs/`, or `example/README.md` in the same change as any behavior,
   model, endpoint, configuration, or infrastructure change.
-- **Naming:** spelling is **kubevisor** (with an `s`). Java base package
-  `com.kubevisor` (example uses `com.example`).
+- **Naming:** spelling is **kubetopo**. Java base package
+  `com.kubetopo` (example uses `com.example`).
 - Prefer small, testable components; use realistic domain naming.
 
 ## Detailed instructions

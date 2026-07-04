@@ -1,6 +1,6 @@
 # Domain model
 
-All internal models live in `com.kubevisor.model`. The four core models are
+All internal models live in `com.kubetopo.model`. The four core models are
 `Node`, `Edge`, `InteractionEvent`, and `GraphSnapshot`. The frontend only ever
 sees the `GraphSnapshot` DTO tree.
 
@@ -139,8 +139,8 @@ memory utilization against configurable thresholds:
 NORMAL → green, ELEVATED → yellow, HIGH → orange, CRITICAL → red
 ```
 
-Thresholds are configured via `kubevisor.cpu-*-threshold` and
-`kubevisor.mem-*-threshold` (see [configuration.md](configuration.md)).
+Thresholds are configured via `kubetopo.cpu-*-threshold` and
+`kubetopo.mem-*-threshold` (see [configuration.md](configuration.md)).
 
 ### Timeline / history DTOs
 

@@ -1,9 +1,9 @@
 ---
 mode: agent
-description: 'Run the full KubeVisor stack locally (backend + frontend + example workload).'
+description: 'Run the full KubeTopo stack locally (backend + frontend + example workload).'
 ---
 
-Help me run the KubeVisor stack locally for development. Start the components in
+Help me run the KubeTopo stack locally for development. Start the components in
 order and confirm each is healthy before moving on:
 
 1. Backend graph API on `:8080` — `cd backend && mvn spring-boot:run`.

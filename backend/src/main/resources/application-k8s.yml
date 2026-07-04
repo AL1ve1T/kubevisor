@@ -2,7 +2,7 @@
 # Overrides the default H2 datasource with PostgreSQL.
 spring:
   datasource:
-    url: jdbc:postgresql://${DB_HOST:kubevisor-postgres}:${DB_PORT:5432}/${DB_NAME:kubevisor}
+    url: jdbc:postgresql://${DB_HOST:kubetopo-postgres}:${DB_PORT:5432}/${DB_NAME:kubetopo}
     driver-class-name: org.postgresql.Driver
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}

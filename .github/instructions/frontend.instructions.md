@@ -1,6 +1,6 @@
 ---
 applyTo: 'frontend/**'
-description: 'KubeVisor frontend (React / TypeScript / Vite topology UI) conventions'
+description: 'KubeTopo frontend (React / TypeScript / Vite topology UI) conventions'
 ---
 
 # Frontend instructions
@@ -14,7 +14,7 @@ through historical graph snapshots.
 - **React 19** + **TypeScript** (`~5.8`), **Vite 6** for dev/build.
 - No UI framework — rendering is hand-rolled **SVG** with inline styles.
 - No state library — local `useState` + custom hooks.
-- Package name: `kubevisor-frontend`.
+- Package name: `kubetopo-frontend`.
 
 ## Source of truth
 

@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubetopo.backend.fullname" . }}
+  namespace: {{ include "kubetopo.namespace" . }}
+  labels:
+    app: {{ include "kubetopo.backend.fullname" . }}
+    app.kubernetes.io/name: {{ include "kubetopo.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: backend
+    {{- include "kubetopo.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "kubetopo.backend.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "kubetopo.backend.fullname" . }}
+        app.kubernetes.io/name: {{ include "kubetopo.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: backend
+      {{- with .Values.backend.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "kubetopo.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: backend
+          image: {{ include "kubetopo.backend.image" . | quote }}
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.backend.api.port }}
+              name: http
+            {{- if and (gt (int .Values.backend.otlp.httpPort) 0) (ne (int .Values.backend.otlp.httpPort) (int .Values.backend.api.port)) }}
+            - containerPort: {{ .Values.backend.otlp.httpPort }}
+              name: otlp-http
+            {{- end }}
+          env:
+            - name: SERVER_PORT
+              value: {{ .Values.backend.api.port | quote }}
+            - name: KUBETOPO_OTLP_HTTP_PORT
+              value: {{ .Values.backend.otlp.httpPort | quote }}
+            - name: KUBETOPO_STALE_THRESHOLD_SECONDS
+              value: {{ .Values.backend.staleThresholdSeconds | quote }}
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.backend.springProfile | quote }}
+            - name: DB_HOST
+              value: {{ include "kubetopo.database.host" . | quote }}
+            - name: DB_PORT
+              value: {{ include "kubetopo.database.port" . | quote }}
+            - name: DB_NAME
+              value: {{ include "kubetopo.database.name" . | quote }}
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kubetopo.database.secretName" . }}
+                  key: {{ include "kubetopo.database.userKey" . }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kubetopo.database.secretName" . }}
+                  key: {{ include "kubetopo.database.passwordKey" . }}
+            {{- with .Values.backend.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: {{ .Values.backend.api.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: {{ .Values.backend.api.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubetopo.backend.fullname" . }}
+  namespace: {{ include "kubetopo.namespace" . }}
+  labels:
+    app: {{ include "kubetopo.backend.fullname" . }}
+    app.kubernetes.io/name: {{ include "kubetopo.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: backend
+    {{- include "kubetopo.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.backend.service.type }}
+  selector:
+    app: {{ include "kubetopo.backend.fullname" . }}
+  ports:
+    - port: {{ .Values.backend.service.apiPort }}
+      targetPort: {{ .Values.backend.api.port }}
+      protocol: TCP
+      name: http
+    {{- if and (gt (int .Values.backend.otlp.httpPort) 0) (ne (int .Values.backend.otlp.httpPort) (int .Values.backend.api.port)) }}
+    - port: {{ .Values.backend.service.otlpPort }}
+      targetPort: {{ .Values.backend.otlp.httpPort }}
+      protocol: TCP
+      name: otlp-http
+    {{- end }}

@@ -1,17 +1,17 @@
-# KubeVisor
+# KubeTopo
 
-KubeVisor turns OpenTelemetry traces and Kubernetes signals into a **live,
+KubeTopo turns OpenTelemetry traces and Kubernetes signals into a **live,
 understandable service-communication graph**. It ingests telemetry from workloads
 running in a cluster, infers the service topology, aggregates rolling per-edge
 metrics (request rate, latency, errors), and renders the result as an interactive
 graph in the browser.
 
-> **▶ [Try the live demo](https://al1ve1t.github.io/kubevisor/)** — runs entirely
+> **▶ [Try the live demo](https://al1ve1t.github.io/kubetopo/)** — runs entirely
 > in your browser, no backend needed. Pick a sample cluster or paste your own
-> `kubectl` YAML, drive the load, and watch KubeVisor render the topology and
+> `kubectl` YAML, drive the load, and watch KubeTopo render the topology and
 > surface where an outage hits.
 
-[![KubeVisor live topology demo](.github/assets/demo.gif)](https://al1ve1t.github.io/kubevisor/)
+[![KubeTopo live topology demo](.github/assets/demo.gif)](https://al1ve1t.github.io/kubetopo/)
 
 This is the management repository for the whole project. The three components live
 side by side as subfolders, each retaining its own history, build, and docs.
@@ -47,7 +47,7 @@ flowchart LR
 ## Getting started
 
 Deploy the whole stack (backend, frontend UI, PostgreSQL, and an OTel Collector)
-into a Kubernetes cluster with the bundled [Helm chart](backend/helm/kubevisor).
+into a Kubernetes cluster with the bundled [Helm chart](backend/helm/kubetopo).
 
 **Prerequisites:** a Kubernetes cluster, `kubectl`, [Helm](https://helm.sh) 3+,
 and Docker. The steps below use [Minikube](https://minikube.sigs.k8s.io) and build
@@ -59,19 +59,19 @@ minikube start --cpus=4 --memory=4096
 
 # 2. Build the images into the cluster's Docker daemon
 eval $(minikube docker-env)
-( cd backend  && mvn -q -DskipTests package && docker build -t kubevisor-backend:0.1.0 . )
-( cd frontend && docker build -t kubevisor-frontend:0.1.0 . )
+( cd backend  && mvn -q -DskipTests package && docker build -t kubetopo-backend:0.1.0 . )
+( cd frontend && docker build -t kubetopo-frontend:0.1.0 . )
 
-# 3. Install the chart — creates and owns the `kubevisor` namespace
-helm install kubevisor ./backend/helm/kubevisor
+# 3. Install the chart — creates and owns the `kubetopo` namespace
+helm install kubetopo ./backend/helm/kubetopo
 
 # 4. Open the topology UI
-kubectl -n kubevisor port-forward svc/kubevisor-frontend 8080:80
+kubectl -n kubetopo port-forward svc/kubetopo-frontend 8080:80
 # → http://localhost:8080
 ```
 
 The image tags default to the chart's `appVersion` (`0.1.0`), matching the tags
-built above. Check status with `kubectl -n kubevisor get pods`.
+built above. Check status with `kubectl -n kubetopo get pods`.
 
 ### Sending it telemetry
 
@@ -79,31 +79,31 @@ The backend needs OpenTelemetry data to draw edges. Either point your workloads'
 OTLP exporters at the bundled collector:
 
 ```
-http://kubevisor-otel-collector.kubevisor.svc.cluster.local:4318
+http://kubetopo-otel-collector.kubetopo.svc.cluster.local:4318
 ```
 
 …or, if your cluster already runs a collector, disable the bundled one
 (`--set otelCollector.enabled=false`) and export OTLP/HTTP from your collector to
-the backend at `kubevisor-backend.kubevisor.svc.cluster.local:4318`.
+the backend at `kubetopo-backend.kubetopo.svc.cluster.local:4318`.
 
 ### Common options
 
 ```bash
 # Use an external PostgreSQL instead of the bundled one
-helm install kubevisor ./backend/helm/kubevisor \
+helm install kubetopo ./backend/helm/kubetopo \
   --set postgres.enabled=false \
   --set externalDatabase.host=my-postgres --set externalDatabase.existingSecret=my-db-secret
 
 # Enable Beyla (passive eBPF network-flow capture for un-instrumented workloads),
 # pinned to Linux nodes
-helm upgrade kubevisor ./backend/helm/kubevisor --reuse-values \
+helm upgrade kubetopo ./backend/helm/kubetopo --reuse-values \
   --set beyla.enabled=true --set 'beyla.nodeSelector.kubernetes\.io/os=linux'
 
 # Remove everything
-helm uninstall kubevisor
+helm uninstall kubetopo
 ```
 
-See the [chart README](backend/helm/kubevisor/README.md) for the full list of
+See the [chart README](backend/helm/kubetopo/README.md) for the full list of
 configurable values.
 
 ## Local development

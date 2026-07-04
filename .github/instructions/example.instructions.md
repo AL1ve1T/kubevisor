@@ -1,6 +1,6 @@
 ---
 applyTo: 'example/**'
-description: 'KubeVisor example ticketing workload (traffic / OTel trace generator) conventions'
+description: 'KubeTopo example ticketing workload (traffic / OTel trace generator) conventions'
 ---
 
 # Example workload instructions

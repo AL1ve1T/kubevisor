@@ -101,7 +101,7 @@ export function DemoControlPanel(props: DemoControlPanelProps) {
         >
             <div style={{ padding: "16px 16px 14px", borderBottom: "1px solid #1f2937" }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: "#f9fafb", letterSpacing: 0.3 }}>
-                    KubeVisor
+                    KubeTopo
                 </div>
                 <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>interactive demo</div>
             </div>

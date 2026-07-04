@@ -1,24 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kubevisor-backend
-  namespace: kubevisor
+  name: kubetopo-backend
+  namespace: kubetopo
   labels:
-    app: kubevisor-backend
+    app: kubetopo-backend
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: kubevisor-backend
+      app: kubetopo-backend
   template:
     metadata:
       labels:
-        app: kubevisor-backend
+        app: kubetopo-backend
     spec:
-      serviceAccountName: kubevisor-backend
+      serviceAccountName: kubetopo-backend
       containers:
-        - name: kubevisor-backend
-          image: kubevisor-backend:latest
+        - name: kubetopo-backend
+          image: kubetopo-backend:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -28,23 +28,23 @@ spec:
           env:
             - name: SERVER_PORT
               value: "8080"
-            - name: KUBEVISOR_OTLP_HTTP_PORT
+            - name: KUBETOPO_OTLP_HTTP_PORT
               value: "4318"
-            - name: KUBEVISOR_STALE_THRESHOLD_SECONDS
+            - name: KUBETOPO_STALE_THRESHOLD_SECONDS
               value: "120"
             - name: SPRING_PROFILES_ACTIVE
               value: "k8s"
             - name: DB_HOST
-              value: "kubevisor-postgres"
+              value: "kubetopo-postgres"
             - name: DB_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: kubevisor-postgres-secret
+                  name: kubetopo-postgres-secret
                   key: POSTGRES_USER
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: kubevisor-postgres-secret
+                  name: kubetopo-postgres-secret
                   key: POSTGRES_PASSWORD
           readinessProbe:
             httpGet:

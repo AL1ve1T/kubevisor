@@ -5,7 +5,7 @@ metadata:
 data:
   SPRING_PROFILES_ACTIVE: k8s
   OTEL_SERVICE_NAME: auth-service
-  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.kubevisor.svc.cluster.local:4318
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.kubetopo.svc.cluster.local:4318
   OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
   OTEL_TRACES_SAMPLER: parentbased_always_on
   OTEL_BSP_SCHEDULE_DELAY: "1000"

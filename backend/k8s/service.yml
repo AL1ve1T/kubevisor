@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: kubevisor-backend
-  namespace: kubevisor
+  name: kubetopo-backend
+  namespace: kubetopo
   labels:
-    app: kubevisor-backend
+    app: kubetopo-backend
 spec:
   type: ClusterIP
   selector:
-    app: kubevisor-backend
+    app: kubetopo-backend
   ports:
     - port: 8080
       targetPort: 8080

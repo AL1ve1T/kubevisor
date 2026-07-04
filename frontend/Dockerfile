@@ -23,7 +23,7 @@ FROM nginx:1.27-alpine AS runtime
 # NGINX_LOCAL_RESOLVERS from /etc/resolv.conf.
 ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
 # In-cluster default; the Helm chart overrides this with the backend Service URL.
-ENV BACKEND_URL=http://kubevisor-backend:8080
+ENV BACKEND_URL=http://kubetopo-backend:8080
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 8080

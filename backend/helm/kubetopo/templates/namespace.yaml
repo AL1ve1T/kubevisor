@@ -1,0 +1,10 @@
+{{- if .Values.namespace.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "kubetopo.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "kubetopo.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    {{- include "kubetopo.labels" . | nindent 4 }}
+{{- end }}

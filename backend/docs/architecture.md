@@ -2,7 +2,7 @@
 
 ## System context
 
-`kubevisor.backend` runs in the **observability plane**, outside the business
+`kubetopo.backend` runs in the **observability plane**, outside the business
 request path. It is **telemetry-source agnostic**: it accepts OTLP/HTTP from any
 OpenTelemetry Collector in any Kubernetes cluster, exposing ingestion on the
 standard OTLP/HTTP port **4318** (separate from the graph API on 8080). It
@@ -28,7 +28,7 @@ flowchart LR
         beyla --> otel
         kubelet --> otel
     end
-    otel -->|OTLP/HTTP :4318| backend[kubevisor.backend]
+    otel -->|OTLP/HTTP :4318| backend[kubetopo.backend]
     k8sapi[(Kubernetes API)] -->|pod status / IPs| backend
     backend -->|REST + SSE :8080| frontend[Frontend]
     backend --> db[(PostgreSQL / H2)]
@@ -37,7 +37,7 @@ flowchart LR
 ## Package layout
 
 The codebase keeps ingestion, parsing, normalization, topology, aggregation, and
-publishing as separate packages under `com.kubevisor`.
+publishing as separate packages under `com.kubetopo`.
 
 | Package | Responsibility | Key classes |
 | --- | --- | --- |
@@ -50,9 +50,9 @@ publishing as separate packages under `com.kubevisor`.
 | `model` | Internal domain models and frontend DTOs | `Node`, `Edge`, `InteractionEvent`, `GraphSnapshot`, `PodInstance`, enums, `*Dto` |
 | `cleanup` | Remove stale nodes and edges | `StaleGraphCleaner` |
 | `persistence` | Snapshot storage, retention, and history/timeline queries | `SnapshotPersistenceService`, `GraphSnapshotRepository`, `GraphSnapshotEntity`, `SnapshotRetentionCleaner`, `RestartTimelineService`, `NodeMetricsTimelineService`, `NamespaceRequestTimelineService` |
-| `support` | Configuration, utilities, pod status scraping, OpenAPI/web config | `KubevisorProperties`, `PodStatusScraper`, `OpenApiConfig`, `WebConfig` |
+| `support` | Configuration, utilities, pod status scraping, OpenAPI/web config | `KubetopoProperties`, `PodStatusScraper`, `OpenApiConfig`, `WebConfig` |
 
-The application entry point is `KubevisorBackendApplication`. It is a standard
+The application entry point is `KubetopoBackendApplication`. It is a standard
 `@SpringBootApplication` with `@EnableScheduling` (cleanup, persistence, and
 publishing run on scheduled cadences).
 

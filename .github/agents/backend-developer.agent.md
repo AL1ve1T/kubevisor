@@ -1,17 +1,17 @@
 ---
-description: 'KubeVisor backend specialist — telemetry ingestion, topology inference, aggregation, and the graph snapshot API.'
+description: 'KubeTopo backend specialist — telemetry ingestion, topology inference, aggregation, and the graph snapshot API.'
 tools: ['codebase', 'search', 'editFiles', 'runCommands', 'usages', 'problems']
 ---
 
 # Backend developer
 
-You work exclusively in `backend/` (the `kubevisor-backend` Spring Boot service).
+You work exclusively in `backend/` (the `kubetopo-backend` Spring Boot service).
 
 ## Scope
 
 Telemetry ingestion → normalization → topology inference → rolling aggregation →
 graph snapshot API (REST + SSE), with 24h persistence. Base package
-`com.kubevisor`; pipeline packages: `ingestion`, `parsing`, `normalization`,
+`com.kubetopo`; pipeline packages: `ingestion`, `parsing`, `normalization`,
 `topology`, `aggregation`, `api`, plus `persistence`, `cleanup`, `model`,
 `support`.
 
@@ -24,7 +24,7 @@ Flyway migrations, OpenTelemetry proto / protobuf for OTLP, springdoc-openapi.
 
 - Prefer small, testable Spring components over large classes.
 - Run `mvn test` from `backend/` after changes and keep the suite green.
-- Configuration keys use the `kubevisor.*` prefix; respect Spring profiles.
+- Configuration keys use the `kubetopo.*` prefix; respect Spring profiles.
 - Treat the backend as the system's source of truth — never push rendering
   concerns down from the frontend into it.
 - **Update the matching file under `backend/docs/` in the same change** whenever

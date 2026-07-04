@@ -1,0 +1,50 @@
+{{- $backend := include "kubetopo.backend.fullname" . -}}
+{{- $ns := include "kubetopo.namespace" . -}}
+✅ KubeTopo "{{ .Release.Name }}" installed into namespace "{{ $ns }}".
+
+Components:
+  • backend        {{ $backend }} (graph API :{{ .Values.backend.service.apiPort }}, OTLP/HTTP :{{ .Values.backend.service.otlpPort }})
+{{- if .Values.frontend.enabled }}
+  • frontend       {{ include "kubetopo.frontend.fullname" . }} (UI :{{ .Values.frontend.service.port }})
+{{- end }}
+{{- if .Values.postgres.enabled }}
+  • database       {{ include "kubetopo.postgres.fullname" . }} (PostgreSQL)
+{{- else }}
+  • database       external ({{ .Values.externalDatabase.host }}:{{ .Values.externalDatabase.port }})
+{{- end }}
+{{- if .Values.otelCollector.enabled }}
+  • collector      {{ include "kubetopo.collector.fullname" . }} (OTLP grpc :{{ .Values.otelCollector.service.grpcPort }}, http :{{ .Values.otelCollector.service.httpPort }})
+{{- end }}
+
+{{- if .Values.frontend.enabled }}
+
+1. Open the topology UI locally:
+
+   kubectl -n {{ $ns }} port-forward svc/{{ include "kubetopo.frontend.fullname" . }} 8080:{{ .Values.frontend.service.port }}
+   # then open http://localhost:8080
+{{- else }}
+
+1. View the live graph API locally:
+
+   kubectl -n {{ $ns }} port-forward svc/{{ $backend }} {{ .Values.backend.service.apiPort }}:{{ .Values.backend.service.apiPort }}
+   # then open http://localhost:{{ .Values.backend.service.apiPort }}/api/graph
+{{- end }}
+
+{{- if .Values.otelCollector.enabled }}
+
+2. Point your workloads' OTLP exporters at the bundled collector:
+
+   http://{{ include "kubetopo.collector.fullname" . }}.{{ $ns }}.svc.cluster.local:{{ .Values.otelCollector.service.httpPort }}
+{{- else }}
+
+2. No collector was installed. Configure your existing OpenTelemetry Collector to
+   export OTLP/HTTP to the backend:
+
+   http://{{ $backend }}.{{ $ns }}.svc.cluster.local:{{ .Values.backend.service.otlpPort }}
+{{- end }}
+
+{{- if and .Values.postgres.enabled (not .Values.postgres.auth.existingSecret) (eq .Values.postgres.auth.password "changeme-local-dev") }}
+
+⚠️  You are using the built-in demo PostgreSQL password. For any non-local
+    deployment, set postgres.auth.password or postgres.auth.existingSecret.
+{{- end }}

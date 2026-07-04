@@ -5,7 +5,7 @@ Interactive docs are available via Swagger UI at **`/swagger-ui.html`** (OpenAPI
 JSON at `/v3/api-docs`).
 
 The **OTLP/HTTP ingestion endpoints** (`/v1`) are additionally served on the
-dedicated OTLP/HTTP port **4318** (`kubevisor.otlp.http-port`), so any
+dedicated OTLP/HTTP port **4318** (`kubetopo.otlp.http-port`), so any
 OpenTelemetry Collector can export to `<backend-host>:4318` with its conventional
 configuration. See [configuration.md](configuration.md) and
 [deployment.md](deployment.md).

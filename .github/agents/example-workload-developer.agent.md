@@ -1,5 +1,5 @@
 ---
-description: 'KubeVisor example workload specialist — the ticketing-system services that generate traffic and OTel traces.'
+description: 'KubeTopo example workload specialist — the ticketing-system services that generate traffic and OTel traces.'
 tools: ['codebase', 'search', 'editFiles', 'runCommands', 'usages', 'problems']
 ---
 

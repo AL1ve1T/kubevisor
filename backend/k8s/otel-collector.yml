@@ -15,7 +15,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: otel-collector
-  namespace: kubevisor
+  namespace: kubetopo
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -41,7 +41,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: otel-collector
-    namespace: kubevisor
+    namespace: kubetopo
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -51,7 +51,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-collector-config
-  namespace: kubevisor
+  namespace: kubetopo
 data:
   otel-collector-config.yaml: |
     extensions:
@@ -83,7 +83,7 @@ data:
           # The kubelet stats summary API on Minikube does not expose container memory
           # limits in a form kubeletstats can use to compute the ratio. The backend
           # instead reads container.memory.working_set (raw bytes, always emitted) and
-          # divides by kubevisor.memory-limit-bytes from application.yml.
+          # divides by kubetopo.memory-limit-bytes from application.yml.
           # Also enable pod-level CPU utilization as a fallback.
           k8s.pod.cpu.utilization:
             enabled: true
@@ -115,13 +115,13 @@ data:
     exporters:
       debug:
         verbosity: basic
-      otlphttp/kubevisor_backend:
-        # Endpoint is injected from the KUBEVISOR_BACKEND_ENDPOINT env var so it
+      otlphttp/kubetopo_backend:
+        # Endpoint is injected from the KUBETOPO_BACKEND_ENDPOINT env var so it
         # can be overridden without editing this ConfigMap. The backend exposes
         # OTLP/HTTP ingestion on the standard port 4318.
         # Local dev (Minikube → host machine): http://host.docker.internal:4318
-        # In-cluster: http://kubevisor-backend.kubevisor.svc.cluster.local:4318
-        endpoint: "${env:KUBEVISOR_BACKEND_ENDPOINT}"
+        # In-cluster: http://kubetopo-backend.kubetopo.svc.cluster.local:4318
+        endpoint: "${env:KUBETOPO_BACKEND_ENDPOINT}"
         encoding: json
         compression: none
         tls:
@@ -133,11 +133,11 @@ data:
         traces:
           receivers: [otlp]
           processors: [batch]
-          exporters: [debug, otlphttp/kubevisor_backend]
+          exporters: [debug, otlphttp/kubetopo_backend]
         metrics:
           receivers: [otlp, kubeletstats]
           processors: [batch, k8sattributes]
-          exporters: [debug, otlphttp/kubevisor_backend]
+          exporters: [debug, otlphttp/kubetopo_backend]
         logs:
           receivers: [otlp]
           processors: [batch]
@@ -147,7 +147,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: otel-collector
-  namespace: kubevisor
+  namespace: kubetopo
 spec:
   replicas: 1
   selector:
@@ -172,9 +172,9 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
             # Where to export telemetry.
-            # Override to http://kubevisor-backend.kubevisor.svc.cluster.local:4318
+            # Override to http://kubetopo-backend.kubetopo.svc.cluster.local:4318
             # when the backend is deployed inside the cluster.
-            - name: KUBEVISOR_BACKEND_ENDPOINT
+            - name: KUBETOPO_BACKEND_ENDPOINT
               value: "http://host.docker.internal:4318"
           ports:
             - containerPort: 4317
@@ -212,7 +212,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: otel-collector
-  namespace: kubevisor
+  namespace: kubetopo
   labels:
     app: otel-collector
 spec:

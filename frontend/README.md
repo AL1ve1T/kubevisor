@@ -1,4 +1,4 @@
-# KubeVisor
+# KubeTopo
 
 Frontend for a Kubernetes observability tool. It renders **service-to-service
 communication** as a column-based topology graph, styles edges by load / latency /
@@ -51,12 +51,12 @@ The image is built with an empty `VITE_API_BASE_URL` so the app calls the backen
 `BACKEND_URL` env var ([nginx/default.conf.template](nginx/default.conf.template)).
 
 ```bash
-docker build -t kubevisor-frontend:0.1.0 .
-docker run -p 8080:8080 -e BACKEND_URL=http://host.docker.internal:8080 kubevisor-frontend:0.1.0
+docker build -t kubetopo-frontend:0.1.0 .
+docker run -p 8080:8080 -e BACKEND_URL=http://host.docker.internal:8080 kubetopo-frontend:0.1.0
 ```
 
-The KubeVisor Helm chart deploys this image and sets `BACKEND_URL` to the
-in-cluster backend Service — see `backend/helm/kubevisor/`.
+The KubeTopo Helm chart deploys this image and sets `BACKEND_URL` to the
+in-cluster backend Service — see `backend/helm/kubetopo/`.
 
 ## Documentation
 

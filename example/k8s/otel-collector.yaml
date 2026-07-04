@@ -24,8 +24,8 @@ data:
     exporters:
       debug:
         verbosity: basic
-      otlphttp/kubevisor_backend:
-        endpoint: "http://kubevisor-backend.kubevisor.svc.cluster.local:4318"
+      otlphttp/kubetopo_backend:
+        endpoint: "http://kubetopo-backend.kubetopo.svc.cluster.local:4318"
         encoding: json
         compression: none
         tls:
@@ -37,7 +37,7 @@ data:
         traces:
           receivers: [otlp]
           processors: [batch]
-          exporters: [debug, otlphttp/kubevisor_backend]
+          exporters: [debug, otlphttp/kubetopo_backend]
         metrics:
           receivers: [otlp]
           processors: [batch]
