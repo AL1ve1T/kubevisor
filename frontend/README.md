@@ -21,12 +21,42 @@ npm run preview  # preview production build
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `VITE_API_BASE_URL` | `http://localhost:8080` | Backend base URL |
+| `VITE_API_BASE_URL` | `http://localhost:8080` | Backend base URL. **Empty string ⇒ same-origin** (requests resolve against `window.location.origin`), used by the container image so nginx can proxy `/api` to the backend. |
 | `VITE_GRAPH_SNAPSHOT_PATH` | `/api/graph` | REST snapshot endpoint |
 | `VITE_GRAPH_STREAM_PATH` | `/api/graph/stream` | SSE live-update endpoint |
 
 `USE_MOCK` in [src/App.tsx](src/App.tsx) renders a static
 [mockSnapshot](src/data/mockSnapshot.ts) for offline UI work.
+
+## Demo mode (no backend)
+
+A standalone, hostable demo lets visitors paste their own `kubectl` YAML (or pick a
+sample), then watch their cluster render and react to a chosen load profile —
+entirely in the browser, no backend required.
+
+```bash
+npm run dev:demo     # vite dev server in demo mode
+npm run build:demo   # static bundle for hosting (add --base=/<subpath>/ if needed)
+```
+
+It is enabled by `VITE_DEMO_MODE=true` (see [.env.demo](.env.demo)) or a `?demo`
+query param. The live app is unaffected. See [docs/demo.md](docs/demo.md) for how
+manifests are parsed, dependencies inferred, and load simulated.
+
+## Container image
+
+[Dockerfile](Dockerfile) builds the SPA and serves it with nginx on port `8080`.
+The image is built with an empty `VITE_API_BASE_URL` so the app calls the backend
+**same-origin**; nginx reverse-proxies `/api` (REST + SSE) to the URL in the
+`BACKEND_URL` env var ([nginx/default.conf.template](nginx/default.conf.template)).
+
+```bash
+docker build -t kubevisor-frontend:0.1.0 .
+docker run -p 8080:8080 -e BACKEND_URL=http://host.docker.internal:8080 kubevisor-frontend:0.1.0
+```
+
+The KubeVisor Helm chart deploys this image and sets `BACKEND_URL` to the
+in-cluster backend Service — see `backend/helm/kubevisor/`.
 
 ## Documentation
 
@@ -44,6 +74,7 @@ Full documentation lives in [docs/](docs/README.md):
 | [docs/hooks.md](docs/hooks.md) | Custom hooks reference |
 | [docs/helpers.md](docs/helpers.md) | Geometry / edge / color helper reference |
 | [docs/visual-language.md](docs/visual-language.md) | Metric → style mapping |
+| [docs/demo.md](docs/demo.md) | Standalone, backend-free demo |
 
 > **Keep docs in sync.** When you change code, update the matching file under
 > `docs/`. See the documentation policy in

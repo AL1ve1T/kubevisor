@@ -1,0 +1,31 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Debug Backend",
+            "request": "launch",
+            "mainClass": "com.kubevisor.KubevisorBackendApplication",
+            "projectName": "kubevisor-backend",
+            "cwd": "${workspaceFolder}/backend"
+        },
+        {
+            "type": "chrome",
+            "name": "Debug Frontend",
+            "request": "launch",
+            "url": "http://localhost:5173",
+            "webRoot": "${workspaceFolder}/frontend",
+            "preLaunchTask": "Frontend Dev Server (debug)"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Debug All",
+            "configurations": [
+                "Debug Backend",
+                "Debug Frontend"
+            ],
+            "stopAll": true
+        }
+    ]
+}

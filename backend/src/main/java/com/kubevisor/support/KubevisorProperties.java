@@ -51,6 +51,35 @@ public class KubevisorProperties {
     // stops (at the risk of flicker if it drops below the export interval).
     private long trafficHoldSeconds = Edge.DEFAULT_TRAFFIC_HOLD_SECONDS;
 
+    // OTLP/HTTP ingestion listener settings.
+    private final Otlp otlp = new Otlp();
+
+    /**
+     * OTLP/HTTP ingestion settings. Exposing ingestion on the conventional
+     * OTLP/HTTP port (4318) — separate from the graph API / management port —
+     * lets any OpenTelemetry Collector export to the backend with its standard
+     * configuration, instead of being wired to the application port.
+     */
+    public static class Otlp {
+
+        // Dedicated port for the OTLP/HTTP ingestion endpoints (/v1/traces,
+        // /v1/metrics). 4318 is the OTLP/HTTP standard port. Set to 0 (or the
+        // same value as server.port) to serve ingestion on the main port only.
+        private int httpPort = 4318;
+
+        public int getHttpPort() {
+            return httpPort;
+        }
+
+        public void setHttpPort(int httpPort) {
+            this.httpPort = httpPort;
+        }
+    }
+
+    public Otlp getOtlp() {
+        return otlp;
+    }
+
     public long getStaleThresholdSeconds() {
         return staleThresholdSeconds;
     }

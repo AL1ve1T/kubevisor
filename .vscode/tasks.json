@@ -32,6 +32,31 @@
             }
         },
         {
+            "label": "Frontend Dev Server (debug)",
+            "type": "shell",
+            "command": "npm run dev",
+            "options": {
+                "cwd": "${workspaceFolder}/frontend"
+            },
+            "isBackground": true,
+            "presentation": {
+                "group": "kubevisor",
+                "panel": "dedicated",
+                "reveal": "always"
+            },
+            "problemMatcher": {
+                "owner": "vite",
+                "pattern": {
+                    "regexp": "^$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".*VITE.*",
+                    "endsPattern": ".*Local:.*"
+                }
+            }
+        },
+        {
             "label": "Run All",
             "dependsOn": [
                 "Run Backend",

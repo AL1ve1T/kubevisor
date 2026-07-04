@@ -12,7 +12,12 @@ export const GRAPH_SNAPSHOT_PATH = import.meta.env.VITE_GRAPH_SNAPSHOT_PATH ?? "
 export const GRAPH_STREAM_PATH = import.meta.env.VITE_GRAPH_STREAM_PATH ?? "/api/graph/stream";
 
 export function buildApiUrl(path: string): string {
-    return new URL(path, API_BASE_URL).toString();
+    // An empty VITE_API_BASE_URL means "same origin": resolve against the page
+    // origin so requests hit whatever serves the app (e.g. nginx proxying /api
+    // to the backend in the Kubernetes deployment).
+    const base =
+        API_BASE_URL || (typeof window !== "undefined" ? window.location.origin : "http://localhost:8080");
+    return new URL(path, base).toString();
 }
 
 function isGraphSnapshotLike(value: unknown): value is GraphSnapshot {

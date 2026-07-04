@@ -1,0 +1,160 @@
+{{- if .Values.beyla.enabled }}
+{{- if .Values.beyla.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "kubevisor.beyla.serviceAccountName" . }}
+  namespace: {{ include "kubevisor.namespace" . }}
+  labels:
+    app: {{ include "kubevisor.beyla.fullname" . }}
+    app.kubernetes.io/name: {{ include "kubevisor.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: beyla
+    {{- include "kubevisor.labels" . | nindent 4 }}
+---
+{{- end }}
+{{- if .Values.beyla.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubevisor.beyla.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "kubevisor.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: beyla
+    {{- include "kubevisor.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "services", "nodes"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubevisor.beyla.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "kubevisor.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: beyla
+    {{- include "kubevisor.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubevisor.beyla.serviceAccountName" . }}
+    namespace: {{ include "kubevisor.namespace" . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubevisor.beyla.fullname" . }}
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubevisor.beyla.fullname" . }}
+  namespace: {{ include "kubevisor.namespace" . }}
+  labels:
+    app: {{ include "kubevisor.beyla.fullname" . }}
+    app.kubernetes.io/name: {{ include "kubevisor.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: beyla
+    {{- include "kubevisor.labels" . | nindent 4 }}
+data:
+  beyla-config.yml: |
+    otel_traces_export:
+      endpoint: {{ include "kubevisor.beyla.otlpEndpoint" . }}
+    otel_metrics_export:
+      endpoint: {{ include "kubevisor.beyla.otlpEndpoint" . }}
+      features:
+        - network
+    network:
+      enable: true
+      source: {{ .Values.beyla.network.source }}
+    ebpf:
+      context_propagation: {{ .Values.beyla.contextPropagation }}
+    javaagent:
+      enabled: false
+    attributes:
+      kubernetes:
+        enable: true
+      select:
+        beyla_network_flow_bytes:
+          include:
+            - k8s.src.owner.name
+            - k8s.src.namespace
+            - k8s.dst.owner.name
+            - k8s.dst.namespace
+            - dst.port
+    {{- if .Values.beyla.discovery }}
+    discovery:
+      instrument:
+        {{- range .Values.beyla.discovery }}
+        - k8s_namespace: {{ .namespace }}
+          open_ports: {{ .openPorts | quote }}
+        {{- end }}
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "kubevisor.beyla.fullname" . }}
+  namespace: {{ include "kubevisor.namespace" . }}
+  labels:
+    app: {{ include "kubevisor.beyla.fullname" . }}
+    app.kubernetes.io/name: {{ include "kubevisor.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: beyla
+    {{- include "kubevisor.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ include "kubevisor.beyla.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "kubevisor.beyla.fullname" . }}
+        app.kubernetes.io/name: {{ include "kubevisor.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: beyla
+    spec:
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: {{ include "kubevisor.beyla.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.beyla.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.beyla.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.beyla.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: beyla
+          image: "{{ .Values.beyla.image.repository }}:{{ .Values.beyla.image.tag }}"
+          imagePullPolicy: {{ .Values.beyla.image.pullPolicy }}
+          securityContext:
+            privileged: true
+          env:
+            - name: BEYLA_CONFIG_PATH
+              value: "/config/beyla-config.yml"
+          volumeMounts:
+            - name: beyla-config
+              mountPath: /config
+          resources:
+            {{- toYaml .Values.beyla.resources | nindent 12 }}
+      volumes:
+        - name: beyla-config
+          configMap:
+            name: {{ include "kubevisor.beyla.fullname" . }}
+{{- end }}

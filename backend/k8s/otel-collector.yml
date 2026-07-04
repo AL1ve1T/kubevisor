@@ -117,9 +117,10 @@ data:
         verbosity: basic
       otlphttp/kubevisor_backend:
         # Endpoint is injected from the KUBEVISOR_BACKEND_ENDPOINT env var so it
-        # can be overridden without editing this ConfigMap.
-        # Local dev (Minikube → host machine): http://host.docker.internal:8080
-        # In-cluster: http://kubevisor-backend.kubevisor.svc.cluster.local:8080
+        # can be overridden without editing this ConfigMap. The backend exposes
+        # OTLP/HTTP ingestion on the standard port 4318.
+        # Local dev (Minikube → host machine): http://host.docker.internal:4318
+        # In-cluster: http://kubevisor-backend.kubevisor.svc.cluster.local:4318
         endpoint: "${env:KUBEVISOR_BACKEND_ENDPOINT}"
         encoding: json
         compression: none
@@ -171,10 +172,10 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
             # Where to export telemetry.
-            # Override to http://kubevisor-backend.kubevisor.svc.cluster.local:8080
+            # Override to http://kubevisor-backend.kubevisor.svc.cluster.local:4318
             # when the backend is deployed inside the cluster.
             - name: KUBEVISOR_BACKEND_ENDPOINT
-              value: "http://host.docker.internal:8080"
+              value: "http://host.docker.internal:4318"
           ports:
             - containerPort: 4317
               name: otlp-grpc

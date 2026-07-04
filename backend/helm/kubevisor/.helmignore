@@ -1,0 +1,18 @@
+# Patterns to ignore when building Helm packages.
+.DS_Store
+# Common VCS dirs
+.git/
+.gitignore
+.hg/
+.hgignore
+.svn/
+# Common backup / temp files
+*.swp
+*.tmp
+*.bak
+*.orig
+*~
+# IDEs
+.idea/
+.vscode/
+*.tmproj

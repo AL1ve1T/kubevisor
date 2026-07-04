@@ -22,6 +22,7 @@ Flyway migration SQL runs unchanged in both environments.
 | `stale-threshold-seconds` | `120` (code) / `600` (yml) | Age after which nodes/edges are removed by cleanup. |
 | `cleanup-interval-seconds` | `30` | How often `StaleGraphCleaner` runs. |
 | `retention-days` | `30` | Snapshot history retention window. |
+| `otlp.http-port` | `4318` | Dedicated port for the OTLP/HTTP ingestion endpoints (`/v1/traces`, `/v1/metrics`). `4318` is the OTLP/HTTP standard port, so any OpenTelemetry Collector can export to `<backend-host>:4318` without being wired to the application port; the graph API stays on `server.port`. Set to `0` (or the same value as `server.port`) to serve ingestion on the main port only. |
 | `cpu-elevated-threshold` | `0.50` | CPU ratio for `ELEVATED` load level. |
 | `cpu-high-threshold` | `0.70` | CPU ratio for `HIGH`. |
 | `cpu-critical-threshold` | `0.85` | CPU ratio for `CRITICAL`. |

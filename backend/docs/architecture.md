@@ -3,10 +3,14 @@
 ## System context
 
 `kubevisor.backend` runs in the **observability plane**, outside the business
-request path. It integrates with two sibling repositories:
+request path. It is **telemetry-source agnostic**: it accepts OTLP/HTTP from any
+OpenTelemetry Collector in any Kubernetes cluster, exposing ingestion on the
+standard OTLP/HTTP port **4318** (separate from the graph API on 8080). It
+integrates with two sibling repositories:
 
 - A **demo workload** (ticketing system: `auth-service`, `order-service`,
-  `ticket-service`, plus databases) that emits OpenTelemetry telemetry.
+  `ticket-service`, plus databases) that emits OpenTelemetry telemetry — one
+  example source among many, not a hard dependency.
 - A **frontend** that renders the live topology graph and edge metrics in the browser.
 
 Telemetry reaches the backend through an **OpenTelemetry Collector** and the
@@ -24,9 +28,9 @@ flowchart LR
         beyla --> otel
         kubelet --> otel
     end
-    otel -->|OTLP/HTTP| backend[kubevisor.backend]
+    otel -->|OTLP/HTTP :4318| backend[kubevisor.backend]
     k8sapi[(Kubernetes API)] -->|pod status / IPs| backend
-    backend -->|REST + SSE| frontend[Frontend]
+    backend -->|REST + SSE :8080| frontend[Frontend]
     backend --> db[(PostgreSQL / H2)]
 ```
 

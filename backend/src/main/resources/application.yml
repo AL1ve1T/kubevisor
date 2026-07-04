@@ -27,6 +27,15 @@ kubevisor:
   stale-threshold-seconds: 600
   cleanup-interval-seconds: 30
   retention-days: 30
+  # OTLP/HTTP ingestion listener.
+  otlp:
+    # Dedicated port for the OTLP/HTTP ingestion endpoints (/v1/traces, /v1/metrics).
+    # 4318 is the OTLP/HTTP standard port, so any OpenTelemetry Collector — in any
+    # cluster — can export to <backend-host>:4318 with its conventional config,
+    # while the graph API consumed by the frontend stays on server.port (8080).
+    # Set to 0 (or the same value as server.port) to serve ingestion on the main
+    # port only.
+    http-port: 4318
   # CPU utilization thresholds (0.0 – 1.0) for node load classification
   cpu-elevated-threshold: 0.50
   cpu-high-threshold: 0.70

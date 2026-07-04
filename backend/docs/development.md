@@ -29,6 +29,10 @@ The backend starts on **http://localhost:8080**. Useful local URLs:
 - H2 console: `http://localhost:8080/h2-console`
   (JDBC URL `jdbc:h2:file:./data/kubevisor`, user `sa`, no password)
 
+OTLP/HTTP ingestion (`/v1/traces`, `/v1/metrics`) additionally listens on the
+standard OTLP/HTTP port **4318** (`kubevisor.otlp.http-port`), so a collector can
+export to `http://localhost:4318` with its conventional config.
+
 ## Testing
 
 Unit tests are the priority for the MVP (keep fixtures small and readable).
@@ -105,9 +109,10 @@ Requires `curl`, `jq`, `awk` (and `kubectl` when `AUTO_PORT_FORWARD=true`).
 ## Feeding telemetry locally
 
 To exercise the pipeline without a cluster, POST an OTLP/HTTP JSON trace payload
-to `/v1/traces` (or metrics to `/v1/metrics`). With a cluster, run the OTel
-Collector and point its `KUBEVISOR_BACKEND_ENDPOINT` at the host
-(`http://host.docker.internal:8080`) — see [deployment.md](deployment.md).
+to `/v1/traces` (or metrics to `/v1/metrics`) on either port (`8080` or the
+OTLP/HTTP port `4318`). With a cluster, run the OTel Collector and point its
+`KUBEVISOR_BACKEND_ENDPOINT` at the host (`http://host.docker.internal:4318`) —
+see [deployment.md](deployment.md).
 
 For pod-status/pod-IP enrichment without an in-cluster ServiceAccount, run
 `kubectl proxy` (the scrapers default to `http://localhost:8001`) or rely on the

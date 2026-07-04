@@ -6,7 +6,10 @@ resolution → aggregation → publish**, with **cleanup** running independently
 
 ## 1. Ingestion
 
-Two OTLP/HTTP endpoints under `/v1` (see [api.md](api.md)):
+Two OTLP/HTTP endpoints under `/v1` (see [api.md](api.md)), served on the
+standard OTLP/HTTP port **4318** (`kubevisor.otlp.http-port`) as well as the main
+port 8080. Any OpenTelemetry Collector can therefore export to the backend with
+its conventional `<host>:4318` configuration.
 
 ### Trace ingestion — `OtlpTraceIngestionController`
 

@@ -1,0 +1,39 @@
+# Rendered by the nginx image's envsubst entrypoint: ${BACKEND_URL} is replaced
+# from the environment at container start. nginx's own $variables are preserved
+# (NGINX_ENVSUBST_FILTER=BACKEND_URL).
+server {
+    listen       8080;
+    server_name  _;
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    # SPA client-side routing — always fall back to index.html.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Proxy the backend graph API (REST + SSE) so the SPA calls it same-origin.
+    location /api/ {
+        # Resolve the backend at request time (not at startup) so nginx boots
+        # even when the backend Service DNS isn't ready yet, and picks up new
+        # ClusterIPs. NGINX_LOCAL_RESOLVERS is derived from /etc/resolv.conf by
+        # the nginx image entrypoint (works in Docker and Kubernetes).
+        resolver ${NGINX_LOCAL_RESOLVERS} valid=10s;
+        set $kv_backend "${BACKEND_URL}";
+        proxy_pass $kv_backend$request_uri;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Server-Sent Events (/api/graph/stream): keep the connection open and
+        # unbuffered so events are flushed to the browser immediately.
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+    }
+}

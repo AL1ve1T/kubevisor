@@ -14,3 +14,7 @@ spec:
       targetPort: 8080
       protocol: TCP
       name: http
+    - port: 4318
+      targetPort: 4318
+      protocol: TCP
+      name: otlp-http
