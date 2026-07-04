@@ -49,3 +49,4 @@ npm run preview  # preview production build
 | [hooks.md](hooks.md) | Custom hooks reference |
 | [helpers.md](helpers.md) | Geometry / edge / color helper reference |
 | [visual-language.md](visual-language.md) | Colors, widths, and metric → style mapping |
+| [demo.md](demo.md) | Standalone, backend-free demo (parse YAML → simulate load → render) |

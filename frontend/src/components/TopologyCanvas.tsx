@@ -82,7 +82,12 @@ function computeLayout(
 
     const usableW = CANVAS_W - PAD_X * 2;
     const usableH = CANVAS_H - PAD_Y * 2;
-    const colSpacing = maxCol > 0 ? usableW / maxCol : 0;
+    // Keep columns far enough apart that arc-bowed middle nodes can't intrude into
+    // the neighbouring column and hide the fan-out edges running between them. When
+    // the even split is already wider we keep it; otherwise the graph grows
+    // horizontally and relies on pan/zoom (the canvas is not clipped to CANVAS_W).
+    const MIN_COL_SPACING = NODE_WIDTH + 240;
+    const colSpacing = maxCol > 0 ? Math.max(usableW / maxCol, MIN_COL_SPACING) : 0;
 
     const columns: ColumnInfo[] = [];
 
@@ -94,7 +99,11 @@ function computeLayout(
 
         const heights = bucket.map((id) => nodeGeometries[id]?.height ?? NODE_HEIGHT);
         const totalHeights = heights.reduce((sum, height) => sum + height, 0);
-        const gap = bucket.length > 1 ? Math.max(18, (usableH - totalHeights) / (bucket.length - 1)) : 0;
+        // A roomy minimum vertical gap keeps crowded columns from jamming nodes
+        // together, so the edges arriving between layers stay visually separated
+        // instead of bunching. Tall columns simply overflow CANVAS_H and rely on
+        // pan/zoom.
+        const gap = bucket.length > 1 ? Math.max(40, (usableH - totalHeights) / (bucket.length - 1)) : 0;
         const contentHeight = totalHeights + gap * Math.max(0, bucket.length - 1);
         let cursor = CANVAS_H / 2 - contentHeight / 2;
 

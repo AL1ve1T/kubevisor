@@ -1,0 +1,60 @@
+name: Deploy demo to GitHub Pages
+
+# Builds the standalone, backend-free frontend demo (VITE_DEMO_MODE via `--mode
+# demo`) and publishes it to GitHub Pages at https://<owner>.github.io/<repo>/.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-demo.yml"
+  workflow_dispatch:
+
+# Least-privilege token plus the OIDC/pages permissions the deploy action needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment at a time; newer pushes supersede in-flight runs.
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      # Build in demo mode. The base path must match the Pages sub-path
+      # (project sites are served from /<repo>/); derive it from the repo name.
+      - name: Build standalone demo
+        run: |
+          npx tsc -b
+          npx vite build --mode demo --base "/${{ github.event.repository.name }}/"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

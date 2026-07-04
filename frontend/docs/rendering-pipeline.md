@@ -45,6 +45,12 @@ Key constants: `NODE_WIDTH=160`, `NODE_HEIGHT=56`, `BORDER_RADIUS=12`,
 `computeLayout(nodes, nodeCols, nodeGeometries)` places nodes column-by-column,
 vertically centered per column, and returns `{ positions, colSpacing, columns }`.
 
+Columns use a **minimum horizontal spacing** (`NODE_WIDTH + 140`) so that
+arc-bowed middle nodes (see [strategies](strategies.md)) can never intrude into a
+neighbouring column and hide the fan-out edges between them. With many columns the
+graph simply grows wider than `CANVAS_W` and relies on pan/zoom — the canvas is not
+clipped to that nominal width.
+
 ## 4. Strategy adjustment + edge build
 
 The **active [strategy](strategies.md)** can:

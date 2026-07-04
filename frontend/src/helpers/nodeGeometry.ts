@@ -10,6 +10,22 @@ export const PORT_GAP = 6;
 export const PORT_PADDING = 12;
 export const CANVAS_BAR_HEIGHT = 600;
 
+/**
+ * How INPUT bars are placed vertically.
+ * - `split` (default, live app): two lanes — "internal" on the top half, ingress
+ *   on the bottom half — so the two entry sources never overlap.
+ * - `center` (demo): a single ingress lane spanning the full height with its
+ *   anchor at the vertical centre.
+ */
+export type InputLayoutMode = "split" | "center";
+let inputLayoutMode: InputLayoutMode = "split";
+export function setInputLayoutMode(mode: InputLayoutMode): void {
+    inputLayoutMode = mode;
+}
+export function getInputLayoutMode(): InputLayoutMode {
+    return inputLayoutMode;
+}
+
 // Pod cards rendered inside a workload node ("smaller version" of the node).
 export const NODE_HEADER_H = 24;   // space for the workload name + replica count
 export const POD_CARD_H = 34;      // height of one inner pod mini-card
@@ -49,6 +65,7 @@ export function getStreamWidth(rps: number): number {
 
 export function getNodeCenterY(node: NodeDto | undefined, position: Position): number {
     if (node?.type !== NodeType.INPUT) return position.y;
+    if (inputLayoutMode === "center") return CANVAS_BAR_HEIGHT / 2;
     const isInternal = node.name.toLowerCase().includes("internal");
     return isInternal ? CANVAS_BAR_HEIGHT / 4 : (3 * CANVAS_BAR_HEIGHT) / 4;
 }

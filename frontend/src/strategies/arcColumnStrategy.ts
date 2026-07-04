@@ -76,7 +76,7 @@ export const arcColumnStrategy: TopologyStrategy = {
 
             const ys = group.map((n) => positions[n.id]?.y ?? 0);
             const span = ys[ys.length - 1] - ys[0];
-            const arcDepth = Math.min(span * 0.38, 100);
+            const arcDepth = Math.min(span * 0.3, 72);
             if (arcDepth < 20) continue;
 
             group.forEach((node, i) => {

@@ -56,11 +56,12 @@ Graph mutations are eased in with subtle motion (keyframes in
 [animations.ts](../src/helpers/animations.ts)):
 
 - **New node / pod / edge** — fades (and slightly scales/slides) in on first appearance.
-- **Edge load change** — a brief brightened pulse runs along the path when width/colour/rps changes.
 - **Status change** — a coloured ring pulses around a node (roll-up health) or pod (phase).
 
 These replay via [useChangeFlash](../src/hooks/useChangeFlash.ts) whenever the tracked
 value changes; the perpetual dashed edge flow is unrelated (`EDGE_FLOW_KEYFRAME`).
+Edges intentionally do **not** flash on load changes — only their width/colour
+update — so frequent metric updates stay calm rather than strobing.
 
 ## Canvas chrome
 

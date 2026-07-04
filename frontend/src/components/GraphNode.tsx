@@ -6,6 +6,7 @@ import { KF_NODE_APPEAR, KF_POD_APPEAR, KF_STATUS_FLASH } from "../helpers/anima
 import {
     BAR_WIDTH,
     BORDER_RADIUS,
+    getInputLayoutMode,
     HUB_WIDTH,
     NODE_HEADER_H,
     NODE_HEIGHT,
@@ -221,11 +222,13 @@ function GraphNodeImpl({ node, position, size, highlighted, selected, hasRightOu
 
     if (isBar) {
         const totalH = canvasHeight ?? 600;
-        // Nodes whose name contains "internal" occupy the top half (light blue).
-        // All other INPUT nodes occupy the bottom half (light orange).
+        // Demo centers a single ingress lane full-height; the default split puts
+        // "internal" on the top half (light blue) and ingress on the bottom half
+        // (light orange) so two entry sources never overlap.
+        const centerMode = getInputLayoutMode() === "center";
         const isInternalHalf = node.name.toLowerCase().includes("internal");
-        const barY = isInternalHalf ? 0 : totalH / 2;
-        const barH = totalH / 2;
+        const barH = centerMode ? totalH : totalH / 2;
+        const barY = centerMode ? 0 : isInternalHalf ? 0 : totalH / 2;
         const fill = isInternalHalf ? "#dbeafe" : "#fed7aa";
         const stroke = isInternalHalf ? "#93c5fd" : "#fb923c";
 
