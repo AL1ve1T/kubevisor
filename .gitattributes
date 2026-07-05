@@ -1,0 +1,3 @@
+# Exclude demo/example code from GitHub language statistics
+example/**  linguist-detectable=false
+frontend/src/demo/**  linguist-detectable=false
